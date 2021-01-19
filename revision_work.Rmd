@@ -1,0 +1,788 @@
+---
+title: "Reviews Follow-up"
+author: "Troy Rowan"
+date: "8/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(qvalue)
+library(tidylog)
+library(ggplot2)
+library(cowplot)
+library(eeptools)
+library(moments)
+options(scipen=3)
+```
+
+### Reviewer Comments from Nature Communications
+This document contains follow-up analyses to address reviewer concerns, all in one place
+
+Reviews and comments can be found (here) [https://docs.google.com/document/d/1HUuBzF7eLrNlEWuT0NXPR696nADOtQxYq641DQljTEY/edit]
+
+## Bias towards certain parts of the allele frequency spectrum 
+
+Linear model of significant SNPs indicates not significant linear relationship between MAF and p-value
+```{r}
+#Reads in csv files containing significant SNPs from each analysis (p <= 1e-5)
+sigsnps = 
+  bind_rows(read_csv("190402_RAN.sigsnps.csv",
+                     col_types = cols(rs = col_character())),
+            read_csv("190326_SIM.sigsnps.csv",
+                     col_types = cols(rs = col_character())),
+            read_csv("190326_GEL.sigsnps.csv",
+                     col_types = cols(rs = col_character())))
+ran_gpsm= readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt")%>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af))
+
+
+ran_gpsm %>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af),
+         sig = case_when(p < 1e-5 ~ "Significant",
+                         TRUE ~ "NonSignificant")) %>% 
+   mutate(bin = ntile(maf, 50)) %>% 
+  group_by(bin) %>% 
+  count(sig) %>% 
+  filter(sig == "Significant")
+
+ran_gpsm %>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af)) %>% 
+  filter(p < 1e-5) %>% 
+  lm(p ~ maf, data = .) %>% 
+  summary()
+
+sim_gpsm %>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af)) %>% 
+  filter(p < 1e-5) %>% 
+  lm(p ~ maf, data = .) %>% 
+  summary()
+
+gel_gpsm %>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af)) %>% 
+  filter(p < 1e-5) %>% 
+  lm(p ~ maf, data = .) %>% 
+  summary()
+```
+
+### MAF vs. P (RAN GPSM)
+
+Significant SNPs identified in Red Angus GPSM analysis. A linear model fit here shows that p-values aren't significantly associated with minor allele frequencies (p = 0.22 for significant SNPs). Are we biased when we're just looking at these 
+```{r}
+ran_gpsm %>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af)) %>% 
+  filter(p < 1e-2) %>% 
+  ggplot(aes(maf, -log10(p)))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  theme_bw()
+```
+
+
+### MAF vs. p-value plots of all datasets' GPSM results
+```{r, fig.width=15, fig.height=5}
+ran_gpsm= readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt")%>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af))
+
+sim_gpsm= readgwas2("gpsm/190326_SIM.gpsm.assoc.txt")%>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af))
+
+
+gel_gpsm= readgwas2("gpsm/190326_GEL.gpsm.assoc.txt")%>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af))
+
+plot_grid(
+  ran_gpsm %>% 
+    mutate(maf = case_when(af > 0.5 ~ 1-af,
+                           TRUE ~ af)) %>% 
+    filter(p < 1e-2) %>% 
+    ggplot(aes(maf, -log10(p)))+
+    geom_point(alpha=0.6)+
+    theme_cowplot()+
+    xlab("Minor Allele Frequency"),
+  sim_gpsm %>% 
+    mutate(maf = case_when(af > 0.5 ~ 1-af,
+                           TRUE ~ af)) %>% 
+    filter(p < 1e-2) %>% 
+    ggplot(aes(maf, -log10(p)))+
+    geom_point(alpha=0.6)+
+    theme_cowplot()+
+    xlab("Minor Allele Frequency"),
+  gel_gpsm %>% 
+    mutate(maf = case_when(af > 0.5 ~ 1-af,
+                           TRUE ~ af)) %>% 
+    filter(p < 1e-2) %>% 
+    ggplot(aes(maf, -log10(p)))+
+    geom_point(alpha=0.6)+
+    theme_cowplot()+
+    xlab("Minor Allele Frequency"),
+  nrow = 1, labels = c("g", "h", "i")
+)
+```
+
+
+
+### Calculating mean PVE for Simulations
+On MUG06: Code here won't run
+
+#TreeSelect
+### Assigning ages to individuals
+```{r}
+gelbvieh = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh_phenotypes.csv") %>%
+  filter(!is.na(birth_date)) %>%
+  mutate(age = age_calc(as.Date(birth_date), units = "years", precise = TRUE)) %>%
+  select(iid, age) %>%
+  right_join(read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh_phenotypes.csv"))%>%
+  mutate(bin = ntile(birth_date, 3)) 
+
+simmental = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental_phenotypes.csv") %>%
+  filter(!is.na(anm_dob)) %>%
+  mutate(age = age_calc(as.Date(anm_dob), units = "years", precise = TRUE)) %>%
+  select(international_id, age) %>%
+  right_join(read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental_phenotypes.csv"))%>%
+  mutate(bin = ntile(age, 3),
+         birth_date = as.Date(anm_dob))
+
+redangus = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>%
+  filter(!is.na(birth_date)) %>%
+  mutate(age = age_calc(as.Date(birth_date), units = "years", precise = TRUE)) %>%
+  select(international_id, age) %>%
+  right_join(read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv"))%>%
+  mutate(bin = ntile(birth_date, 3)) 
+
+redangus %>%
+  mutate(bin1000 = case_when(international_id %in% c(redangus %>% filter(bin == 1 ) %>% top_n(1000, wt = age) %>% .$international_id) ~ "OLD",
+                             international_id %in% c(redangus %>% filter(bin == 2 ) %>% sample_n(1000) %>% .$international_id) ~ "MEDIUM",
+                             international_id %in% c(redangus %>% filter(bin == 3 & birth_date < "2016-01-01") %>% sample_n(1000) %>% .$international_id) ~ "YOUNG",
+                             TRUE ~ NA_character_),
+         fid = "1") %>% 
+  select(fid, international_id, bin, bin1000) %>% 
+  write_tsv("revision_work/TreeSelect/190402_RAN.groups.txt",
+            col_names = FALSE)
+
+
+simmental  %>%
+  select(international_id, anm_dob, age, bin) %>% 
+  distinct() %>% 
+  mutate(bin1000 = case_when(international_id %in% c(simmental %>% filter(bin == 1 ) %>% top_n(1000, wt = age) %>% .$international_id) ~ "OLD",
+                             international_id %in% c(simmental %>% filter(bin == 2 ) %>% sample_n(1000) %>% .$international_id) ~ "MEDIUM",
+                             international_id %in% c(simmental %>% filter(bin == 3 & birth_date < "2016-01-01") %>% sample_n(1000) %>% .$international_id) ~ "YOUNG",
+                             TRUE ~ NA_character_),
+         fid = "1") %>% 
+  select(fid, international_id, bin, bin1000) %>% 
+  write_tsv("revision_work/TreeSelect/190326_SIM.groups.txt",
+            col_names = FALSE)
+
+
+gelbvieh %>%
+  mutate(bin1000 = case_when(iid %in% c(gelbvieh %>% filter(bin == 1 ) %>% top_n(1000, wt = age) %>% .$iid) ~ "OLD",
+                             iid %in% c(gelbvieh %>% filter(bin == 2 ) %>% sample_n(1000) %>% .$iid) ~ "MEDIUM",
+                             iid %in% c(gelbvieh %>% filter(bin == 3 & birth_date < "2016-01-01") %>% sample_n(1000) %>% .$iid) ~ "YOUNG",
+                             TRUE ~ NA_character_),
+         fid = "1") %>% 
+  select(fid, iid, bin, bin1000) %>%
+  write_tsv("revision_work/TreeSelect/190326_GEL.groups.txt",
+            col_names = FALSE)
+
+redangus%>% 
+  group_by(bin) %>% 
+  summarize(median(birth_date), max(birth_date), min(birth_date))
+
+simmental %>%
+  mutate(bin = ntile(anm_dob, 3)) %>% 
+  group_by(bin) %>% 
+  summarize(median(anm_dob), max(anm_dob), min(anm_dob))
+
+gelbvieh %>%
+  mutate(bin = ntile(birth_date, 3)) %>% 
+  group_by(bin) %>% 
+  summarize(median(birth_date), max(birth_date), min(birth_date))
+  
+gelbvieh %>% 
+  count(bin)
+
+
+```
+
+### TreeSelect Input Formatting
+```{bash, eval = FALSE}
+cat input_files/190402_RAN.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "5725", $5, $6, $7}' | tail -n +2 | grep "^1" | cut -f 2-8 > input_files/TS_input/RAN_all.old.summary
+cat input_files/190402_RAN.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "5724", $5, $6, $7}' | tail -n +2 | grep "^2" | cut -f 2-8 > input_files/TS_input/RAN_all.mid.summary
+cat input_files/190402_RAN.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "5724", $5, $6, $7}' | tail -n +2 | grep "^3" | cut -f 2-8 > input_files/TS_input/RAN_all.young.summary
+
+
+cat input_files/190402_RAN.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^OLD" | cut -f 2-8 > input_files/TS_input/RAN_1000.old.summary
+cat input_files/190402_RAN.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^MEDIUM" | cut -f 2-8 > input_files/TS_input/RAN_1000.mid.summary
+cat input_files/190402_RAN.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^YOUNG" | cut -f 2-8 > input_files/TS_input/RAN_1000.young.summary
+
+
+cat input_files/190326_SIM.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "5443", $5, $6, $7}' | tail -n +2 | grep "^1" | cut -f 2-8 > input_files/TS_input/SIM_all.old.summary
+cat input_files/190326_SIM.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "5442", $5, $6, $7}' | tail -n +2 | grep "^2" | cut -f 2-8 > input_files/TS_input/SIM_all.mid.summary
+cat input_files/190326_SIM.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "5442", $5, $6, $7}' | tail -n +2 | grep "^3" | cut -f 2-8 > input_files/TS_input/SIM_all.young.summary
+
+cat input_files/190326_SIM.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^OLD" | cut -f 2-8 > input_files/TS_input/SIM_1000.old.summary
+cat input_files/190326_SIM.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^MEDIUM" | cut -f 2-8 > input_files/TS_input/SIM_1000.mid.summary
+cat input_files/190326_SIM.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^YOUNG" | cut -f 2-8 > input_files/TS_input/SIM_1000.young.summary
+
+cat input_files/190326_GEL.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "4011", $5, $6, $7}' | tail -n +2 | grep "^1" | cut -f 2-8 > input_files/TS_input/GEL_all.old.summary
+cat input_files/190326_GEL.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "4010", $5, $6, $7}' | tail -n +2 | grep "^2" | cut -f 2-8 > input_files/TS_input/GEL_all.mid.summary
+cat input_files/190326_GEL.all_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "4010", $5, $6, $7}' | tail -n +2 | grep "^3" | cut -f 2-8 > input_files/TS_input/GEL_all.young.summary
+
+cat input_files/190326_GEL.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^OLD" | cut -f 2-8 > input_files/TS_input/GEL_1000.old.summary
+cat input_files/190326_GEL.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^MEDIUM" | cut -f 2-8 > input_files/TS_input/GEL_1000.mid.summary
+cat input_files/190326_GEL.1000_thirds.frq.strat |tr ":" "\t" | awk 'BEGIN {OFS = "\t"} { print $4, $2 ":" $3, $1, $3, "1000", $5, $6, $7}' | tail -n +2 | grep "^YOUNG" | cut -f 2-8 > input_files/TS_input/GEL_1000.young.summary
+
+```
+
+
+### TreeSelect Results: Red Angus
+
+Read in all three datasets, calculating p-values on each dataset, removing values with Chi-Square values == 0
+
+These two groups are moderately correlated r = 0.30
+Low correlation between TS Chi-squared values and 
+```{r} 
+ran_threebreed = 
+  read_tsv("revision_work/TreeSelect/TS_output/RAN.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character()))%>% 
+      mutate(GROUP = "RAN",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE),
+             q = qvalue(p)$qvalues)%>% 
+  left_join(readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, gpsm_q = q))
+
+
+
+ran_ts_1000 = 
+  bind_rows(
+    read_tsv("revision_work/TreeSelect/TS_output/RAN_1000_OLD.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "OLD",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/RAN_1000_MID.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "MID",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/RAN_1000_YOUNG.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "YOUNG",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)))%>% 
+  left_join(readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q))
+
+ran_ts_all = 
+  bind_rows(
+    read_tsv("revision_work/TreeSelect/TS_output/RAN_all_OLD.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "OLD",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/RAN_all_MID.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "MID",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/RAN_all_YOUNG.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "YOUNG",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE))) %>% 
+  left_join(readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q))
+
+
+
+cor(filter(ran_ts_1000, SNP %in% ran_ts_all$SNP)$CHISQ, 
+    filter(ran_ts_all, SNP %in% ran_ts_1000$SNP)$CHISQ)
+
+cor(ran_ts_1000$CHISQ, ran_ts_1000$beta, use =  "pairwise.complete.obs")
+
+cor(ran_threebreed$CHISQ, ran_threebreed$beta, use =  "pairwise.complete.obs")
+
+cor(ran_pca_select$PC4, ran_pca_select$beta, use =  "pairwise.complete.obs")
+
+ran_gpsm = readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+  select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q)
+
+
+plot_grid(
+  ran_gpsm %>% 
+    filter(gpsm_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(gpsm_p))+
+    geom_hline(yintercept = 5, color = "red")+
+    ggtitle("GPSM"),
+    filter(ran_threebreed,
+           p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(ran_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("Three Breed TreeSelect (RAN branch)"),
+    filter(ran_ts_1000, GROUP == "OLD",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(ran_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (1000) OLD"),
+  filter(ran_ts_all, GROUP == "OLD",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(ran_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (ALL) OLD"),
+  filter(ran_ts_1000, GROUP == "MID",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(ran_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (1000) MID"),
+  filter(ran_ts_all, GROUP == "MID",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(ran_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (ALL) MID"),
+  filter(ran_ts_1000, GROUP == "YOUNG",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(ran_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (1000) YOUNG"),
+  filter(ran_ts_all, GROUP == "YOUNG",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(ran_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (ALL) YOUNG"),
+  nrow = 4)
+
+ggsave("revision_work/TreeSelect/RAN_GPSM_TS_compare.png", height = 12, width = 8, units = "in")
+```
+
+### TreeSelect Results: Simmental
+
+Read in all three datasets, calculating p-values on each dataset, removing values with Chi-Square values == 0
+
+These two groups are moderately correlated r = 0.30
+Low correlation between TS Chi-squared values and 
+
+```{r} 
+SIM_threebreed = 
+  read_tsv("revision_work/TreeSelect/TS_output/SIM.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character()))%>% 
+      mutate(GROUP = "RAN",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE),
+             q = qvalue(p)$qvalues)%>% 
+  left_join(readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, gpsm_q = q))
+
+
+
+SIM_ts_1000 = 
+  bind_rows(
+    read_tsv("revision_work/TreeSelect/TS_output/SIM_1000_OLD.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "OLD",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/SIM_1000_MID.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "MID",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/SIM_1000_YOUNG.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "YOUNG",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)))%>% 
+  left_join(readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q))
+
+SIM_ts_all = 
+  bind_rows(
+    read_tsv("revision_work/TreeSelect/TS_output/SIM_all_OLD.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "OLD",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/SIM_all_MID.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "MID",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/SIM_all_YOUNG.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "YOUNG",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE))) %>% 
+  left_join(readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q))
+
+
+
+cor(filter(SIM_ts_1000, SNP %in% SIM_ts_all$SNP)$CHISQ, 
+    filter(SIM_ts_all, SNP %in% SIM_ts_1000$SNP)$CHISQ)
+
+cor(SIM_ts_1000$CHISQ, SIM_ts_1000$beta, use =  "pairwise.complete.obs")
+
+cor(SIM_threebreed$CHISQ, SIM_threebreed$beta, use =  "pairwise.complete.obs")
+
+
+SIM_gpsm = readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+  select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q)
+
+
+plot_grid(
+  SIM_ts_1000 %>% 
+    filter(gpsm_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(gpsm_p))+
+    geom_hline(yintercept = 5, color = "red")+
+    ggtitle("GPSM"),
+    filter(SIM_threebreed,
+           p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(SIM_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("Three Breed TreeSelect (SIM branch)"),
+    filter(SIM_ts_1000, GROUP == "OLD",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(SIM_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (1000) OLD"),
+  filter(SIM_ts_1000, GROUP == "MID",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(SIM_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (1000) MID"),
+  filter(SIM_ts_1000, GROUP == "YOUNG",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(SIM_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect (1000) YOUNG"),
+  nrow = 5)
+
+ggsave("revision_work/TreeSelect/SIM_GPSM_TS_compare.png", height = 12, width = 4, units = "in")
+```
+
+#### Comparing TreeSelect 1000 to TreeSelect All:
+```{r}
+plot_grid(
+  GEL_ts_all %>% 
+    filter(gpsm_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(gpsm_p))+
+    geom_hline(yintercept = 5, color = "red")+
+    ggtitle("GPSM"),
+    filter(GEL_threebreed,
+           p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("Three Breed TreeSelect (GEL branch)"),
+    filter(GEL_ts_all, GROUP == "OLD",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect OLD"),
+  filter(GEL_ts_all, GROUP == "MID",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect MID"),
+  filter(GEL_ts_all, GROUP == "YOUNG",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect YOUNG"),
+  nrow = 5)
+
+ggsave("revision_work/TreeSelect/GEL_GPSM_TSall_compare.png", height = 12, width = 4, units = "in")
+```
+
+
+### TreeSelect Results: Gelbvieh
+
+Read in all three datasets, calculating p-values on each dataset, removing values with Chi-Square values == 0
+
+These two groups are moderately correlated r = 0.30
+Low correlation between TS Chi-squared values and 
+```{r} 
+GEL_threebreed = 
+  read_tsv("revision_work/TreeSelect/TS_output/GEL.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character()))%>% 
+      mutate(GROUP = "RAN",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE),
+             q = qvalue(p)$qvalues)%>% 
+  left_join(readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, gpsm_q = q))
+
+
+
+GEL_ts_1000 = 
+  bind_rows(
+    read_tsv("revision_work/TreeSelect/TS_output/GEL_1000_OLD.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "OLD",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/GEL_1000_MID.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "MID",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/GEL_1000_YOUNG.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "YOUNG",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)))%>% 
+  left_join(readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q))
+
+GEL_ts_all = 
+  bind_rows(
+    read_tsv("revision_work/TreeSelect/TS_output/GEL_all_OLD.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "OLD",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/GEL_all_MID.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "MID",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE)),
+    read_tsv("revision_work/TreeSelect/TS_output/GEL_all_YOUNG.out",
+           col_names = c("SNP", "CHR", "BP", "A1", "A2", "FREQ", "CENTRAL", "CHISQ"),
+           col_types = cols(SNP = col_character())) %>% 
+      mutate(GROUP = "YOUNG",
+             p = pchisq(CHISQ, df = 1, lower.tail = FALSE))) %>% 
+  left_join(readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q))
+
+
+
+cor(filter(GEL_ts_1000, SNP %in% GEL_ts_all$SNP)$CHISQ, 
+    filter(GEL_ts_all, SNP %in% GEL_ts_1000$SNP)$CHISQ)
+
+cor(GEL_ts_1000$CHISQ, GEL_ts_1000$beta, use =  "pairwise.complete.obs")
+
+cor(GEL_threebreed$CHISQ, GEL_threebreed$beta, use =  "pairwise.complete.obs")
+
+
+GEL_gpsm = readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>% 
+  select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, q)
+
+
+plot_grid(
+  GEL_ts_1000 %>% 
+    filter(gpsm_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(gpsm_p))+
+    geom_hline(yintercept = 5, color = "red")+
+    ggtitle("GPSM"),
+    filter(GEL_threebreed,
+           p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("Three Breed TreeSelect (GEL branch)"),
+    filter(GEL_ts_1000, GROUP == "OLD",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect OLD"),
+  filter(GEL_ts_1000, GROUP == "MID",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect MID"),
+  filter(GEL_ts_1000, GROUP == "YOUNG",
+         p < 0.1) %>% 
+    selscan_manhattans(col = -log10(p),
+                       sigsnps = filter(GEL_gpsm, q < 0.1) %>% .$SNP)+
+    ggtitle("TreeSelect YOUNG"),
+  nrow = 5)
+
+ggsave("revision_work/TreeSelect/GEL_GPSM_TS_compare.png", height = 12, width = 4, units = "in")
+```
+
+### Red Angus PCA Select (within breed)
+
+```{r}
+ran_pca_select = 
+  read_tsv("revision_work/PCA/RAN.pcaselection.chisq",
+           skip = 1,
+           col_names = c("SNP", paste("PC", seq(1,10), sep = "")),
+           col_types = cols(SNP = col_character()), 
+           na = "NaN") %>% 
+  left_join(readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, gpsm_q = q)) %>% 
+    filter(!is.na(PC1),
+           !is.na(gpsm_p))
+
+plot_grid(
+  ran_pca_select %>% 
+    filter(gpsm_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(gpsm_p),
+                       sigsnps = filter(ran_pca_select, gpsm_q < 0.1) %>% .$SNP),
+  ran_pca_select %>% 
+    mutate(PC1_p = pchisq(PC1, df = 1, lower.tail = FALSE)) %>% 
+    filter(PC1_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(PC1_p),
+                       sigsnps = filter(ran_pca_select, gpsm_q < 0.1) %>% .$SNP),
+  ran_pca_select %>% 
+    mutate(PC2_p = pchisq(PC2, df = 1, lower.tail = FALSE)) %>% 
+    filter(PC2_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(PC2_p),
+                       sigsnps = filter(ran_pca_select, gpsm_q < 0.1) %>% .$SNP),
+  ran_pca_select %>% 
+    mutate(PC3_p = pchisq(PC3, df = 1, lower.tail = FALSE)) %>% 
+    filter(PC3_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(PC3_p),
+                       sigsnps = filter(ran_pca_select, gpsm_q < 0.1) %>% .$SNP),
+  nrow = 4,
+  labels = c("GPSM", "PC1", "PC2", "PC3"))
+
+```
+
+### Red Angus PCA Select (All Breeds)
+
+```{r}
+ran_allbreeds_pcaselect = 
+  read_tsv("revision_work/PCA/AllBreeds.pcaselection.chisq"),
+           skip = 1,
+           col_names = c("SNP", paste("PC", seq(1,10), sep = "")),
+           col_types = cols(SNP = col_character()), 
+           na = "NaN") %>% 
+  left_join(readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+                      select(SNP = rs, CHR = chr, BP = pos, beta, gpsm_p = p, gpsm_q = q)) 
+
+
+
+plot_grid(
+  ran_allbreeds_pcaselect %>% 
+    filter(gpsm_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(gpsm_p),
+                       sigsnps = filter(ran_allbreeds_pcaselect, gpsm_q < 0.1) %>% .$SNP),
+  ran_allbreeds_pcaselect %>% 
+    mutate(PC1_p = pchisq(PC1, df = 1, lower.tail = FALSE)) %>% 
+    filter(PC1_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(PC1_p),
+                       sigsnps = filter(ran_allbreeds_pcaselect, gpsm_q < 0.1) %>% .$SNP),
+  ran_allbreeds_pcaselect %>% 
+    mutate(PC2_p = pchisq(PC2, df = 1, lower.tail = FALSE)) %>% 
+    filter(PC2_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(PC2_p),
+                       sigsnps = filter(ran_allbreeds_pcaselect, gpsm_q < 0.1) %>% .$SNP),
+  ran_allbreeds_pcaselect %>% 
+    mutate(PC3_p = pchisq(PC3, df = 1, lower.tail = FALSE)) %>% 
+    filter(PC3_p < 0.1) %>% 
+    selscan_manhattans(col = -log10(PC3_p),
+                       sigsnps = filter(ran_allbreeds_pcaselect, gpsm_q < 0.1) %>% .$SNP),
+  nrow = 4)
+
+```
+### PCA Select (All Breeds)
+```{r}
+
+AllBreedsPCA = 
+  read_table("revision_work/PCA/AllBreeds.evec",
+             col_names = c("ID", paste0("PC", seq(1,10))),
+             skip = 1) %>% 
+    mutate(international_id = str_replace(ID, pattern = "1:", replacement = ""),
+           breed = case_when(international_id %in% redangus$international_id ~ "RedAngus",
+                             international_id %in% simmental$international_id ~ "Simmental",
+                             international_id %in% gelbvieh$iid ~ "Gelbvieh"))
+
+AllBreedsPCA %>% 
+  ggplot(aes(PC1, PC2, color = breed))+
+  geom_point(alpha = 0.25)+
+  theme_cowplot()
+
+AllBreedsPCA %>% 
+  ggplot(aes(PC3, PC4, color = breed))+
+  geom_point(alpha = 0.25)+
+  theme_cowplot()
+```
+
+
+
+
+#Count Significant SNPs in
+```{r}
+ran_gpsm %>% 
+  mutate(sig_q = case_when(q < 0.1 ~ TRUE,
+                           TRUE ~ FALSE),
+         sig_bonf = case_when(p < 0.05/nrow(ran_gpsm) ~ TRUE,
+                              TRUE ~ FALSE),
+         sig_sugg = case_when(p < 1e-5 ~ TRUE,
+                              TRUE ~ FALSE)) %>%
+  select(sig_q, sig_bonf, sig_sugg) %>% 
+  colSums()
+
+sim_gpsm %>% 
+  mutate(sig_q = case_when(q < 0.1 ~ TRUE,
+                           TRUE ~ FALSE),
+         sig_bonf = case_when(p < 0.05/nrow(sim_gpsm) ~ TRUE,
+                              TRUE ~ FALSE),
+         sig_sugg = case_when(p < 1e-5 ~ TRUE,
+                              TRUE ~ FALSE)) %>%
+  select(sig_q, sig_bonf, sig_sugg) %>% 
+  colSums()
+
+gel_gpsm %>% 
+  mutate(sig_q = case_when(q < 0.1 ~ TRUE,
+                           TRUE ~ FALSE),
+         sig_bonf = case_when(p < 0.05/nrow(gel_gpsm) ~ TRUE,
+                              TRUE ~ FALSE),
+         sig_sugg = case_when(p < 1e-5 ~ TRUE,
+                              TRUE ~ FALSE)) %>%
+  select(sig_q, sig_bonf, sig_sugg) %>% 
+  colSums()
+```
+
+
+#Skewness
+
+###Testing skewness of variables and showing that GPSM betas are normally distributed. 
+```{r}
+skewness(redangus$age,na.rm = TRUE)
+skewness(simmental$age,na.rm = TRUE)
+skewness(gelbvieh$age,na.rm = TRUE)
+
+skewness(ran_gpsm$beta)
+skewness(sim_gpsm$beta)
+skewness(gel_gpsm$beta)
+
+skewness(ran_gpsm %>% filter(q > 0.1) %>% .$beta)
+skewness(sim_gpsm %>% filter(q > 0.1) %>% .$beta)
+skewness(gel_gpsm %>% filter(q > 0.1) %>% .$beta)
+
+
+shapiro.test(ran_gpsm %>% filter(q > 0.1) %>% sample_n(5000) %>% .$beta)
+
+kurtosis(ran_gpsm$beta)
+kurtosis(sim_gpsm$beta)
+kurtosis(gel_gpsm$beta)
+
+plot_grid(
+  ggplot(ran_gpsm, aes(beta))+
+    geom_histogram(bins = 1000)+
+    theme_cowplot(),
+  ggplot(sim_gpsm, aes(beta))+
+    geom_histogram(bins = 1000)+
+    theme_cowplot(),
+  ggplot(gel_gpsm, aes(beta))+
+    geom_histogram(bins = 1000)+
+    theme_cowplot(),
+  nrow = 3
+)
+
+```
+
+

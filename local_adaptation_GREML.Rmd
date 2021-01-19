@@ -1,0 +1,890 @@
+---
+title: "GPSM Variance Componenets"
+author: "Troy Rowan"
+date: "12/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(qvalue)
+library(tidylog)
+
+source("/data/tnr343/local_adaptation/red_angus/plotting_functions.R")
+```
+
+#Inital GREML Runs
+##Red Angus
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190402_RAN.all_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --extract sigsnps/190402_RAN.gpsm_genomewide_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190402_RAN.genomewide_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --exclude sigsnps/190402_RAN.gpsm_genomewide_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190402_RAN.no_genomewide_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --extract sigsnps/190402_RAN.gpsm_suggestive_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190402_RAN.suggestive_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --extract sigsnps/190402_RAN.gpsm_other_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190402_RAN.other_gpsm_snps
+
+
+*GREML RUNS*
+* One uses all SNPs to make a single GRM
+* 2 SNP sets uses GRM made of only GPSM genome-wide significant (p < 1e-5) SNPs and non-genome-wide significant SNPs
+* 3 SNP sets uses 3 GRMs one with genome-wide significant SNPs (p < 1e-5), a GRM of "suggestive SNPs" (p < 0.05), and a GRM made of all other SNPs
+
+> gcta64 --reml --grm grm/190402_RAN.all_snps --autosome-num 29 --pheno phenotypes/190402_RAN.gpsm.phenotypes.txt --thread-num 10 --reml-maxit 1000 --out greml/190402_RAN.gpsm.allsnps
+
+> gcta64 --reml --mgrm 2_snpsets.txt --autosome-num 29 --pheno phenotypes/190402_RAN.gpsm.phenotypes.txt --thread-num 10 --out greml/190402_RAN.gpsm.2snpsets
+
+> gcta64 --reml --mgrm 3_snpsets.txt --autosome-num 29 --pheno phenotypes/190402_RAN.gpsm.phenotypes.txt --thread-num 10 --reml-maxit 1000 --out greml/190402_RAN.gpsm.3snpsets
+
+```{r}
+readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+  filter(p < 1e-5) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_genomewide_snps.txt", col_names = FALSE)
+  #write_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/sigsnps/190402_RAN.gpsm_genomewide_snps.txt", col_names = FALSE)
+
+readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+  filter(p >= 1e-5 & p < 0.05) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_suggestive_snps.txt", col_names = FALSE)
+ # write_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/sigsnps/190402_RAN.gpsm_suggestive_snps.txt", col_names = FALSE)
+
+readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+  filter(p >= 0.05) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_other_snps.txt", col_names = FALSE)
+#  write_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/sigsnps/190402_RAN.gpsm_other_snps.txt", col_names = FALSE)
+```
+
+
+##Simmental
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_SIM.all_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --extract sigsnps/190326_SIM.gpsm_genomewide_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_SIM.genomewide_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --exclude sigsnps/190326_SIM.gpsm_genomewide_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_SIM.no_genomewide_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --extract sigsnps/190326_SIM.gpsm_suggestive_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_SIM.suggestive_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --extract sigsnps/190326_SIM.gpsm_other_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_SIM.other_gpsm_snps
+
+*GREML RUNS*
+* 2 SNP sets uses GRM made of only GPSM genome-wide significant (p < 1e-5) SNPs and non-genome-wide significant SNPs
+* 3 SNP sets uses 3 GRMs one with genome-wide significant SNPs (p < 1e-5), a GRM of "suggestive SNPs" (p < 0.05), and a GRM made of all other SNPs
+
+> part
+
+> gcta64 --reml --mgrm 2_snpsets.txt --autosome-num 29 --pheno phenotypes/190326_SIM.gpsm.phenotypes.txt --thread-num 10 --out greml/190326_SIM.gpsm.2snpsets
+
+> gcta64 --reml --mgrm 3_snpsets.txt --autosome-num 29 --pheno phenotypes/190326_SIM.gpsm.phenotypes.txt --thread-num 10 --out greml/190326_SIM.gpsm.3snpsets
+
+
+```{r}
+readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+  filter(p < 1e-5) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_genomewide_snps.txt", col_names = FALSE)
+
+readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+  filter(p >= 1e-5 & p < 0.05) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_suggestive_snps.txt", col_names = FALSE)
+
+readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+  filter(p >= 0.05) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_other_snps.txt", col_names = FALSE)
+
+sigsnps = readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>%
+  filter(q < 0.1)
+
+readgwas2("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>% 
+```
+
+
+##Gelbvieh
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_GEL.all_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --extract sigsnps/190326_GEL.gpsm_genomewide_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_GEL.genomewide_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --exclude sigsnps/190326_GEL.gpsm_genomewide_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_GEL.no_genomewide_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --extract sigsnps/190326_GEL.gpsm_suggestive_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_GEL.suggestive_gpsm_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --extract sigsnps/190326_GEL.gpsm_other_snps.txt --autosome-num 29 --make-grm-bin --thread-num 20 --out grm/190326_GEL.other_gpsm_snps
+
+*GREML RUNS*
+* 2 SNP sets uses GRM made of only GPSM genome-wide significant (p < 1e-5) SNPs and non-genome-wide significant SNPs
+* 3 SNP sets uses 3 GRMs one with genome-wide significant SNPs (p < 1e-5), a GRM of "suggestive SNPs" (p < 0.05), and a GRM made of all other SNPs
+
+> gcta64 --reml --grm grm/190326_GEL.all_snps --autosome-num 29 --pheno phenotypes/190326_GEL.gpsm.phenotypes.txt --thread-num 10 --reml-maxit 1000 --out greml/190326_GEL.gpsm.allsnps
+
+> gcta64 --reml --mgrm 2_snpsets.txt --autosome-num 29 --pheno phenotypes/190326_GEL.gpsm.phenotypes.txt --thread-num 10 --out greml/190326_GEL.gpsm.2snpsets
+
+> gcta64 --reml --mgrm 3_snpsets.txt --autosome-num 29 --pheno phenotypes/190326_GEL.gpsm.phenotypes.txt --thread-num 10 --out greml/190326_GEL.gpsm.3snpsets
+
+```{r}
+readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>% 
+  filter(p < 1e-5) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_genomewide_snps.txt", col_names = FALSE)
+
+readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>% 
+  filter(p >= 1e-5 & p < 0.05) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_suggestive_snps.txt", col_names = FALSE)
+
+readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>% 
+  filter(p >= 0.05) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_other_snps.txt", col_names = FALSE)
+```
+
+
+#Equal GRM sizes ()
+
+##Simmental
+```{r}
+sim_gpsm = readgwas2("gpsm/190326_SIM.gpsm.assoc.txt")
+
+
+sigsnps = sim_gpsm%>% 
+  filter(q < 0.1) %>% 
+  mutate(peakstart = pos - 1000000,
+         peakend = pos + 1000000)
+
+peaks = purrr::pmap(list(sigsnps$chr, sigsnps$peakstart, sigsnps$peakend),
+             ~ sim_gpsm %>% 
+               filter(chr == ..1 & between(pos, ..2, ..3))) %>% 
+  purrr::reduce(bind_rows) %>% 
+  distinct() #%>% 
+  #anti_join(othersnps)
+    
+sim_gpsm = 
+  sim_gpsm %>% 
+  mutate(peak = case_when(rs %in% peaks$rs ~ "Within",
+                          TRUE ~ "Outside"),
+         significance = case_when(q < 0.1 ~ "GW",
+                                 q > 0.1 & p < 0.5 ~ "SU",
+                                 TRUE ~ "OTHER")) %>% 
+  mutate(maf = case_when(af < 0.5 ~ af,
+                         TRUE ~ 1-af))
+
+sim_gpsm = 
+  sim_gpsm %>% 
+  mutate(peak = case_when(rs %in% peaks$rs ~ "Within",
+                          TRUE ~ "Outside"),
+         significance = case_when(q < 0.1 ~ "GW",
+                                  rs %in% c(filter(sim_gpsm, q > 0.1, peak == "Outside") %>% top_n(548, -q) %>% .$rs)  ~ "SU",
+                                 TRUE ~ "OTHER")) %>% 
+  mutate(maf = case_when(af < 0.5 ~ af,
+                         TRUE ~ 1-af))
+
+sim_gpsm %>% 
+  filter(significance == "GW") %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/simmental/190326_SIM.gpsm_genomewide_snps.txt",
+            col_names = FALSE)
+
+sim_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(548) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/simmental/190326_SIM.gpsm_other_snps.txt",
+            col_names = FALSE)
+  # write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_1K_other_snps.txt",
+  #           col_names = FALSE)
+
+sim_gpsm %>% 
+  filter(significance == "SU") %>% 
+  #top_n(-1000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/simmental/190326_SIM.gpsm_suggestive_snps.txt",
+            col_names = FALSE)
+  # write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_1K_suggestive_snps.txt",
+  #           col_names = FALSE)
+```
+
+##Gelbvieh
+```{r}
+gel_gpsm = readgwas2("gpsm/190326_GEL.gpsm.assoc.txt")
+
+
+sigsnps = gel_gpsm%>% 
+  filter(q < 0.1) %>% 
+  mutate(peakstart = pos - 1000000,
+         peakend = pos + 1000000)
+
+peaks = purrr::pmap(list(sigsnps$chr, sigsnps$peakstart, sigsnps$peakend),
+             ~ gel_gpsm %>% 
+               filter(chr == ..1 & between(pos, ..2, ..3))) %>% 
+  purrr::reduce(bind_rows) %>% 
+  distinct() #%>% 
+  #anti_join(othersnps)
+    
+gel_gpsm = 
+  gel_gpsm %>% 
+  mutate(peak = case_when(rs %in% peaks$rs ~ "Within",
+                          TRUE ~ "Outside"),
+         significance = case_when(q < 0.1 ~ "GW",
+                                 q > 0.1 & p < 0.5 ~ "SU",
+                                 TRUE ~ "OTHER")) %>% 
+  mutate(maf = case_when(af < 0.5 ~ af,
+                         TRUE ~ 1-af))
+
+gel_gpsm = 
+  gel_gpsm %>% 
+  mutate(peak = case_when(rs %in% peaks$rs ~ "Within",
+                          TRUE ~ "Outside"),
+         significance = case_when(q < 0.1 ~ "GW",
+                                  rs %in% c(filter(gel_gpsm, q > 0.1, peak == "Outside") %>% top_n(763, -q) %>% .$rs)  ~ "SU",
+                                 TRUE ~ "OTHER")) %>% 
+  mutate(maf = case_when(af < 0.5 ~ af,
+                         TRUE ~ 1-af))
+
+gel_gpsm %>% 
+  filter(significance == "GW") %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/gelbvieh/190326_GEL.gpsm_genomewide_snps.txt",
+            col_names = FALSE)
+
+gel_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(763) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/gelbvieh/190326_GEL.gpsm_other_snps.txt",
+            col_names = FALSE)
+  # write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_1K_other_snps.txt",
+  #           col_names = FALSE)
+
+gel_gpsm %>% 
+  filter(significance == "SU") %>% 
+  #top_n(-1000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/gelbvieh/190326_GEL.gpsm_suggestive_snps.txt",
+            col_names = FALSE)
+  # write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_1K_suggestive_snps.txt",
+  #           col_names = FALSE)
+```
+
+##Red Angus
+```{r}
+ran_gpsm = readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt")
+
+
+sigsnps = ran_gpsm%>% 
+  filter(q < 0.1) %>% 
+  mutate(peakstart = pos - 1000000,
+         peakend = pos + 1000000)
+
+peaks = purrr::pmap(list(sigsnps$chr, sigsnps$peakstart, sigsnps$peakend),
+             ~ ran_gpsm %>% 
+               filter(chr == ..1 & between(pos, ..2, ..3))) %>% 
+  purrr::reduce(bind_rows) %>% 
+  distinct() #%>% 
+  #anti_join(othersnps)
+    
+ran_gpsm = 
+  ran_gpsm %>% 
+  mutate(peak = case_when(rs %in% peaks$rs ~ "Within",
+                          TRUE ~ "Outside"),
+         significance = case_when(q < 0.1 ~ "GW",
+                                  rs %in% c(filter(ran_gpsm, q > 0.1, peak == "Outside") %>% top_n(268, -q) %>% .$rs)  ~ "SU",
+                                 TRUE ~ "OTHER")) %>% 
+  mutate(maf = case_when(af < 0.5 ~ af,
+                         TRUE ~ 1-af))
+
+ran_gpsm %>% 
+  filter(significance == "GW") %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/redangus/190402_RAN.gpsm_genomewide_snps.txt",
+            col_names = FALSE)
+
+ran_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(268) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/redangus/190402_RAN.gpsm_other_snps.txt",
+            col_names = FALSE)
+  # write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_1K_other_snps.txt",
+  #           col_names = FALSE)
+
+ran_gpsm %>% 
+  filter(significance == "SU") %>% 
+  #top_n(-1000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/revision_work/greml/redangus/190402_RAN.gpsm_suggestive_snps.txt",
+            col_names = FALSE)
+  # write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_1K_suggestive_snps.txt",
+  #           col_names = FALSE)
+```
+
+###Three GRM analysis commands for Simmental, Birth Year GREML
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --autosome-num 29 --extract sigsnps/190326_SIM.gpsm_1K_other_snps.txt --make-grm-bin --thread-num 10 --out grm/190326_SIM.gpsm_1k_other_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --autosome-num 29 --extract sigsnps/190326_SIM.gpsm_1K_suggestive_snps.txt --make-grm-bin --thread-num 10 --out grm/190326_SIM.gpsm_1k_suggestive_snps
+
+
+> gcta64 --reml --mgrm 3_snpsets_1K.txt --autosome-num 29 --pheno phenotypes/190326_SIM.gpsm.phenotypes.txt --thread-num 10 --out greml/190326_SIM.gpsm.3snpsets_1K
+
+
+
+
+###Including 2K SNPs in 3 GRM model
+
+```{r}
+sim_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(2000) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_2K_other_snps.txt",
+            col_names = FALSE)
+
+sim_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "SU") %>% 
+  top_n(-2000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_2K_suggestive_snps.txt",
+            col_names = FALSE)
+```
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --autosome-num 29 --extract sigsnps/190326_SIM.gpsm_2K_other_snps.txt --make-grm-bin --thread-num 20 --out grm/190326_SIM.gpsm_2k_other_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --autosome-num 29 --extract sigsnps/190326_SIM.gpsm_2K_suggestive_snps.txt --make-grm-bin --thread-num 20 --out grm/190326_SIM.gpsm_2k_suggestive_snps
+
+
+> gcta64 --reml --mgrm 3_snpsets_2K.txt --autosome-num 29 --pheno phenotypes/190326_SIM.gpsm.phenotypes.txt --thread-num 30 --out greml/190326_SIM.gpsm.3snpsets_2K
+
+### Two GRM analysis. One includes only significant SNPs, other includes all other variants provided they are > 1 Mb from significant SNP
+```{r}
+sim_gpsm %>% 
+  filter(peak == "Outside") %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/simmental/sigsnps/190326_SIM.gpsm_other_snps_nopeaks.txt",
+            col_names = FALSE)
+```
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/190326_SIM --autosome-num 29 --extract sigsnps/190326_SIM.gpsm_other_snps_nopeaks.txt --make-grm-bin --thread-num 20 --out grm/190326_SIM.gpsm_other_snps_nopeaks
+
+##Gelbvieh
+```{r}
+gel_gpsm = readgwas2("gpsm/190326_GEL.updated.gpsm.assoc.txt")
+
+
+sigsnps = gel_gpsm%>%
+  filter(q < 0.1) %>% 
+  mutate(peakstart = pos - 1000000,
+         peakend = pos + 1000000)
+
+no_peaks = purrr::pmap(list(sigsnps$chr, sigsnps$peakstart, sigsnps$peakend),
+             ~ sim_gpsm %>% 
+               filter(chr == ..1 & between(pos, ..2, ..3))) %>% 
+  purrr::reduce(bind_rows) %>% 
+  distinct() #%>% 
+  #anti_join(othersnps)
+    
+gel_gpsm = 
+  gel_gpsm %>% 
+  mutate(peak = case_when(rs %in% no_peaks$rs ~ "Within",
+                          TRUE ~ "Outside"),
+         significance = case_when(q < 0.1 ~ "GW",
+                                 q > 0.1 & p < 0.5 ~ "SU",
+                                 TRUE ~ "OTHER")) %>% 
+  mutate(maf = case_when(af < 0.5 ~ af,
+                         TRUE ~ 1-af))
+gel_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(1000) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_1K_other_snps.txt",
+            col_names = FALSE)
+
+gel_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "SU") %>% 
+  top_n(-1000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_1K_suggestive_snps.txt",
+            col_names = FALSE)
+```
+###Three GRM analysis commands for gelbvieh, Birth Year GREML
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --autosome-num 29 --extract sigsnps/190326_GEL.gpsm_1K_other_snps.txt --make-grm-bin --thread-num 20 --out grm/190326_GEL.gpsm_1k_other_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --autosome-num 29 --extract sigsnps/190326_GEL.gpsm_1K_suggestive_snps.txt --make-grm-bin --thread-num 20 --out grm/190326_GEL.gpsm_1k_suggestive_snps
+
+
+> gcta64 --reml --mgrm 3_snpsets_1K.txt --autosome-num 29 --pheno phenotypes/190326_GEL.gpsm.phenotypes.txt --thread-num 10 --out greml/190326_GEL.gpsm.3snpsets_1K
+
+
+
+
+###Including 2K SNPs in 3 GRM model
+
+```{r}
+gel_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(2000) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_2K_other_snps.txt",
+            col_names = FALSE)
+
+gel_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "SU") %>% 
+  top_n(-2000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_2K_suggestive_snps.txt",
+            col_names = FALSE)
+```
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --autosome-num 29 --extract sigsnps/190326_GEL.gpsm_2K_other_snps.txt --make-grm-bin --thread-num 20 --out grm/190326_GEL.gpsm_2k_other_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --autosome-num 29 --extract sigsnps/190326_GEL.gpsm_2K_suggestive_snps.txt --make-grm-bin --thread-num 20 --out grm/190326_GEL.gpsm_2k_suggestive_snps
+
+
+> gcta64 --reml --mgrm 3_snpsets_2K.txt --autosome-num 29 --pheno phenotypes/190326_GEL.gpsm.phenotypes.txt --thread-num 30 --out greml/190326_GEL.gpsm.3snpsets_2K
+
+### Two GRM analysis. One includes only significant SNPs, other includes all other variants provided they are > 1 Mb from significant SNP
+```{r}
+gel_gpsm %>% 
+  filter(peak == "Outside") %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/gelbvieh/sigsnps/190326_GEL.gpsm_other_snps_nopeaks.txt",
+            col_names = FALSE)
+```
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL --autosome-num 29 --extract sigsnps/190326_GEL.gpsm_other_snps_nopeaks.txt --make-grm-bin --thread-num 20 --out grm/190326_GEL.gpsm_other_snps_nopeaks
+
+##Red Angus
+```{r}
+ran_gpsm = readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt")
+
+
+sigsnps = ran_gpsm%>%
+  filter(q < 0.1) %>% 
+  mutate(peakstart = pos - 1000000,
+         peakend = pos + 1000000)
+
+no_peaks = purrr::pmap(list(sigsnps$chr, sigsnps$peakstart, sigsnps$peakend),
+             ~ sim_gpsm %>% 
+               filter(chr == ..1 & between(pos, ..2, ..3))) %>% 
+  purrr::reduce(bind_rows) %>% 
+  distinct() #%>% 
+  #anti_join(othersnps)
+    
+ran_gpsm = 
+  ran_gpsm %>% 
+  mutate(peak = case_when(rs %in% no_peaks$rs ~ "Within",
+                          TRUE ~ "Outside"),
+         significance = case_when(q < 0.1 ~ "GW",
+                                 q > 0.1 & p < 0.05 ~ "SU",
+                                 TRUE ~ "OTHER")) %>% 
+  mutate(maf = case_when(af < 0.5 ~ af,
+                         TRUE ~ 1-af))
+ran_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(1000) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_1K_other_snps.txt",
+            col_names = FALSE)
+
+ran_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "SU") %>% 
+  top_n(-1000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_1K_suggestive_snps.txt",
+            col_names = FALSE)
+```
+
+###Three GRM analysis commands for Red Angus, Birth Year GREML
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --autosome-num 29 --extract sigsnps/190402_RAN.gpsm_1K_other_snps.txt --make-grm-bin --thread-num 20 --out grm/190402_RAN.gpsm_1k_other_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --autosome-num 29 --extract sigsnps/190402_RAN.gpsm_1K_suggestive_snps.txt --make-grm-bin --thread-num 20 --out grm/190402_RAN.gpsm_1k_suggestive_snps
+
+
+> gcta64 --reml --mgrm 3_snpsets_1K.txt --autosome-num 29 --pheno phenotypes/190402_RAN.gpsm.phenotypes.txt --thread-num 10 --out greml/190402_RAN.gpsm.3snpsets_1K
+
+
+
+
+###Including 2K SNPs in 3 GRM model
+
+```{r} 
+ran_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "OTHER",
+         maf > 0.15) %>% 
+  sample_n(2000) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_2K_other_snps.txt",
+            col_names = FALSE)
+
+ran_gpsm %>% 
+  filter(peak == "Outside",
+         significance == "SU") %>% 
+  top_n(-2000, p) %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_2K_suggestive_snps.txt",
+            col_names = FALSE)
+
+readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>% 
+  filter(chr == 19) %>% 
+  mutate(p_score = p) %>% 
+  ggmanhattan2(sigsnps = read_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_2K_suggestive_snps.txt", 
+                                  col_names = c("rs"),
+                                  col_types = cols(rs = col_character()))$rs,
+               sigsnps2 = read_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_2K_other_snps.txt", 
+                                   col_names = c("rs"),
+                                  col_types = cols(rs = col_character()))$rs)+
+  ylim(c(0,7))
+```
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --autosome-num 29 --extract sigsnps/190402_RAN.gpsm_2K_other_snps.txt --make-grm-bin --thread-num 20 --out grm/190402_RAN.gpsm_2k_other_snps
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --autosome-num 29 --extract sigsnps/190402_RAN.gpsm_2K_suggestive_snps.txt --make-grm-bin --thread-num 20 --out grm/190402_RAN.gpsm_2k_suggestive_snps
+
+
+> gcta64 --reml --mgrm 3_snpsets_2K.txt --autosome-num 29 --pheno phenotypes/190402_RAN.gpsm.phenotypes.txt --thread-num 30 --out greml/190402_RAN.gpsm.3snpsets_2K
+
+### Two GRM analysis. One includes only significant SNPs, other includes all other variants provided they are > 1 Mb from significant SNP
+```{r}
+ran_gpsm %>% 
+  filter(peak == "Outside") %>% 
+  select(rs) %>% 
+  write_tsv("/data/tnr343/local_adaptation/combined_analysis/greml/red_angus/sigsnps/190402_RAN.gpsm_other_snps_nopeaks.txt",
+            col_names = FALSE)
+```
+
+> gcta64 --bfile /CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN --autosome-num 29 --extract sigsnps/190402_RAN.gpsm_other_snps_nopeaks.txt --make-grm-bin --thread-num 20 --out grm/190402_RAN.gpsm_other_snps_nopeaks
+
+
+###Using all SNPs, but dividing into three variant classes
+For Red Angus we use "suggestive" as being 1e-5 < p < 0.05
+That leaves 268 SNPs GW significant and only ~29K as suggestive, the rest are placed into "other"
+This will allow us to do a direct comparison between each variant class
+```{r}
+ran_gpsm %>% 
+  filter(significance == "GW") %>% 
+  select(rs) %>% 
+  write_tsv("greml/red_angus/sigsnps/190402_RAN.gpsm_genomewide_snps.txt", col_names = FALSE)
+
+ran_gpsm %>% 
+  filter(significance == "SU") %>% 
+  select(rs) %>% 
+  write_tsv("greml/red_angus/sigsnps/190402_RAN.gpsm_suggestive_snps.txt", col_names = FALSE)
+
+ran_gpsm %>% 
+  filter(significance == "OTHER") %>% 
+  select(rs) %>% 
+  write_tsv("greml/red_angus/sigsnps/190402_RAN.gpsm_other_snps.txt", col_names = FALSE)
+```
+
+
+#GREML using multiple GRMs for growth traits
+##Red Angus
+### Creating phenotype and covariate files and adjusting phenotypes
+
+```{r}
+read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>% 
+  mutate(famid = "1") %>% 
+  select(famid, international_id,birth_wt, wean_wt, year_wt) %>% 
+  mutate_at(.vars = vars(birth_wt, wean_wt, year_wt),
+            .funs = funs(. = case_when(
+              . == "." ~ NA_real_,
+              . != "." & !is.na(.) ~ as.numeric(.),
+              is.na(.) ~ NA_real_
+        ))) %>% 
+  select(-birth_wt, -wean_wt, -year_wt) %>% 
+  write_delim("greml/red_angus/phenotypes/190402_RAN.weight.phenotypes.txt",
+              delim = " ", 
+              col_names = FALSE)
+
+read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>% 
+  mutate(famid = "1") %>% 
+  select(famid, international_id, sex) %>% 
+  write_delim("greml/red_angus/phenotypes/190402_RAN.sex.txt",
+              delim = " ", 
+              col_names = FALSE)
+
+options(na.action='na.pass')
+
+redangus = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>% 
+  mutate(famid = "1") %>% 
+  mutate(year = case_when(!is.na(birth_date) ~ str_split_fixed(as.character(birth_date), "-", 3)[,1],
+                          TRUE ~ NA_character_),
+         month = case_when(!is.na(birth_date) ~ str_split_fixed(as.character(birth_date), "-", 3)[,2],
+                          TRUE ~ NA_character_),
+         season = case_when(as.integer(month) < 7 ~ "Spring",
+                            TRUE ~ "Fall"),
+         cg = case_when(!is.na(year) ~ paste(as.character(zip), year, season, sep = "_"),
+                        TRUE ~ international_id)) 
+
+cgmatrix = model.matrix(~redangus$cg + 0, na.action = "na.pass") %*% t(model.matrix(~redangus$cg + 0))
+
+data.frame(ind1 = rep(1:nrow(cgmatrix), 1:nrow(cgmatrix)),
+         ind2 = sequence(1:nrow(cgmatrix)),
+         value = gdata::upperTriangle(cgmatrix, diag = TRUE)) %>% 
+mutate(nsnps = 836118) %>% 
+select(ind1, ind2, nsnps, value) %>% 
+write_delim(gzfile("greml/red_angus/phenotypes/190402_RAN.contemporary_groups.grm.gz"),
+            delim = " ", 
+            col_names = FALSE)
+
+dam_matrix = model.matrix(~redangus$dam_reg + 0, na.action = "na.pass") %*% t(model.matrix(~redangus$dam_reg + 0))
+
+data.frame(ind1 = rep(1:nrow(dam_matrix), 1:nrow(dam_matrix)),
+         ind2 = sequence(1:nrow(dam_matrix)),
+         value = gdata::upperTriangle(dam_matrix, diag = TRUE)) %>% 
+mutate(nsnps = 836118) %>% 
+select(ind1, ind2, nsnps, value) %>% 
+write_delim(gzfile("greml/red_angus/phenotypes/190402_RAN.maternal_matrix.grm.gz"),
+            delim = " ", 
+            col_names = FALSE)
+redangus %>% 
+  select(famid, international_id) %>% 
+  write_delim("greml/red_angus/phenotypes/190402_RAN.maternal_matrix.id", col_names = FALSE, delim = " ")
+
+redangus %>% 
+  select(famid, international_id) %>% 
+  write_delim("greml/red_angus/phenotypes/190402_RAN.contemporary_groups.id", col_names = FALSE, delim = " ")
+
+read_tsv("greml/red_angus/greml/weights/blups/190402_RAN.bw.adjusted.indi.blp",
+         col_names = c("famid", "id", "INTVAR", "CGVAL", "INTVAR2", "BV", "INTVAR3", "E")) %>% 
+  mutate(adjusted_phenotype = BV + E) %>% 
+  select(famid, id, adjusted_phenotype) %>% 
+  right_join(read_delim("greml/red_angus/phenotypes/190402_RAN.contemporary_groups.grm.id", delim = " ", col_names = c("famid", "id"))) %>% 
+  write_tsv("greml/red_angus/phenotypes/190402_RAN.bw.adjusted.txt", col_names = FALSE)
+```
+### Adjusting Phenotypes then running GREML GCTA command:
+
+> gcta64 --reml --mgrm adjustment_grm.txt --autosome-num 29 --pheno phenotypes/190402_RAN.weight.phenotypes.txt --mpheno 3 --covar phenotypes/190402_RAN.sex.txt --reml-pred-rand --out greml/weights/blups/190402_RAN.yw.adjusted
+
+> gcta64 --reml --mgrm adjustment_grm.txt --autosome-num 29 --pheno phenotypes/190402_RAN.weight.phenotypes.txt --mpheno 1 --covar phenotypes/190402_RAN.sex.txt --reml-pred-rand --out greml/weights/blups/190402_RAN.bw.adjusted
+
+Using same --mgrm lists as with unadjusted GPSM runs. Appropriate because we've adjusted for random contemporary group effect and sex
+> gcta64 --reml --mgrm 2_snpsets.txt --autosome-num 29 --threads 15 --pheno phenotypes/190402_RAN.bw.adjusted.txt --out greml/weights/190402_RAN.bw.2snpsets
+
+> gcta64 --reml --mgrm 2_snpsets.txt --autosome-num 29 --threads 15 --pheno phenotypes/190402_RAN.yw.adjusted.txt --out greml/weights/190402_RAN.yw.2snpsets
+
+> gcta64 --reml --mgrm 3_snpsets_2K.txt --autosome-num 29 --threads 15 --pheno phenotypes/190402_RAN.bw.adjusted.txt --out greml/weights/190402_RAN.bw.3snpsets
+
+> gcta64 --reml --mgrm 3_snpsets_2K.txt --autosome-num 29 --threads 15 --pheno phenotypes/190402_RAN.yw.adjusted.txt --out greml/weights/190402_RAN.yw.3snpsets
+
+###Red Angus 3 GRM analysis using all of the SNPs Results:
+
+Yearling Weight
+Source  Variance        SE
+V(SIG)   7.619370        13.114943
+V(SUG)   104.673115      131.448144
+V(OTH)   3138.423767     216.746141
+V(CG)   9359.820338     575.964888
+V(e)    8315.983357     136.195521
+Vp      20926.519948    585.184328
+
+New Vp = 11566.7
+                                Total PVE   Per-SNP PVE
+Significant SNPs h2 (n = 268)   0.000658    2.45796e-06
+Suggestive SNPs h2 (n = 29,861) 0.009049    3.030549e-07
+Other SNPs h2 (n = 641,481)     0.271332    4.229785e-07
+
+
+
+##Gelbvieh
+### Creating phenotype and covariate files and adjusting phenotypes
+
+```{r}
+gelbvieh =
+  left_join(
+    read_delim("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/190326_GEL.fam", 
+               col_names = c("famid", "iid", "A", "B", "C", "D"),
+               delim = " ") %>% 
+      select(famid, iid),
+    read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/phenotypes/170919_GEL_phenotype_with_internationalid.csv") %>% 
+      mutate(famid = 1) %>% 
+      mutate(iid = str_split_fixed(individual, "-", n = 2)[,1])) %>% 
+    select(famid, iid, dam, sex, adj_bw, adj_ww, adj_yw, adj_mrb, zip, birth_date) %>%
+        mutate(year = case_when(!is.na(birth_date) ~ str_split_fixed(as.character(birth_date), "-", 3)[,1],
+                            TRUE ~ NA_character_),
+           month = case_when(!is.na(birth_date) ~ str_split_fixed(as.character(birth_date), "-", 3)[,2],
+                            TRUE ~ NA_character_),
+           season = case_when(as.integer(month) < 7 ~ "Spring",
+                              TRUE ~ "Fall"),
+           cg = case_when(!is.na(year) ~ paste(as.character(zip), year, season, sep = "_"),
+                          TRUE ~ iid)) %>% 
+  distinct()
+
+
+```
+
+
+```{r}
+#Sex
+gelbvieh %>% 
+  select(famid, iid, sex) %>% 
+  write_tsv("greml/gelbvieh/phenotypes/190326_GEL.sex.txt", 
+            col_names = FALSE)
+
+#Contemporary group matrix 
+options(na.action='na.pass')
+
+cgmatrix = model.matrix(~gelbvieh$cg + 0, na.action = "na.pass") %*% t(model.matrix(~gelbvieh$cg + 0))
+
+data.frame(ind1 = rep(1:nrow(cgmatrix), 1:nrow(cgmatrix)),
+         ind2 = sequence(1:nrow(cgmatrix)),
+         value = gdata::upperTriangle(cgmatrix, diag = TRUE)) %>% 
+mutate(nsnps = 836118) %>% 
+select(ind1, ind2, nsnps, value) %>% 
+write_delim(gzfile("greml/gelbvieh/phenotypes/190326_GEL.contemporary_groups.grm.gz"),
+            delim = " ", 
+            col_names = FALSE)
+
+# dam_matrix = model.matrix(~gelbvieh$dam + 0, na.action = "na.pass") %*% t(model.matrix(~gelbvieh$dam + 0))
+# 
+# data.frame(ind1 = rep(1:nrow(cgmatrix), 1:nrow(cgmatrix)),
+#          ind2 = sequence(1:nrow(cgmatrix)),
+#          value = gdata::upperTriangle(cgmatrix, diag = TRUE)) %>% 
+# mutate(nsnps = 836118) %>% 
+# select(ind1, ind2, nsnps, value) %>% 
+# write_delim(gzfile("greml/gelbvieh/phenotypes/190402_RAN.maternal_matrix.grm.gz"),
+#             delim = " ", 
+#             col_names = FALSE)
+gelbvieh %>% 
+  select(famid, iid) %>% 
+  write_tsv("greml/gelbvieh/phenotypes/190326_GEL.contemporary_groups.grm.id", col_names = FALSE)
+
+gelbvieh %>% 
+  select(famid, iid, adj_bw, adj_ww, adj_yw, adj_mrb) %>% 
+  write_tsv("greml/gelbvieh/phenotypes/190326_GEL.phenotypes.txt", col_names = FALSE)
+```
+> gcta64 --grm-gz phenotypes/190326_GEL.contemporary_groups --make-grm --threads 10 --out grm/190326_GEL.contemp
+orary_groups
+
+> gcta --reml --mgrm 3_snpsets_cg.txt --phenos 190326_GEL.phenotypes.txt --mpheno 1 --covar 190326_GEL.sex.txt --autosome-num 29 --threads 10 --reml-maxit 1000 --out greml/weights/190326_GEL.bw.3snpsets.allsnps
+
+
+
+
+
+#Comparing residuals for birth year between breeds
+```{r}
+
+
+read_tsv("greml/red_angus/greml/190402_RAN.gpsm.allsnps.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+  stat_qq()+
+  stat_qq_line()+
+  ggtitle("Untransformed Red Angus")
+
+read_tsv("greml/simmental/greml/190326_SIM.gpsm.allsnps.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+  stat_qq()+
+  stat_qq_line()+
+  ggtitle("Untransformed Simmental")
+
+read_tsv("greml/gelbvieh/greml/190326_GEL.gpsm.allsnps.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+  stat_qq()+
+  stat_qq_line()+
+  ggtitle("Untransformed Gelbvieh")
+```
+
+
+#Trying to fix uneven residuals here
+* They're way out of whack on the unadjusted phenotype
+* natural log appears to fix some of the issue (at least reducing residual values, though they're still a bit off from the looks of things)
+* Rank normal makes residuals appear normal (as it should) and greatly increases the number of associations that we identify
+```{r}
+read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+  stat_qq()+
+  stat_qq_line()+
+  ggtitle("Untransformed")
+
+read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred_ranknorm_transformed.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+  stat_qq()+
+  stat_qq_line()+
+  ggtitle("Rank Normal Transformed")
+
+read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred_boxcox_transformed.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+  stat_qq()+
+  stat_qq_line()+
+  ggtitle("Box Cox Transformed")
+
+read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred_log_transformed.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+  stat_qq()+
+  stat_qq_line()+
+  ggtitle("Log Transformed")
+```
+
+#Trying to fix uneven residuals here
+Attempting to look at the distribution of breeding values
+```{r, fig.width=10, fig.height=5}
+redangus = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>% 
+  mutate(breed = "Red Angus")
+
+make_qq <- function(dd, x) {
+    dd<-dd[order(dd[[x]]), ]
+    dd$qq <- qnorm(ppoints(nrow(dd)))
+    dd
+}
+
+
+residuals = 
+  read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred.indi.blp", 
+         col_names = c("FID", "IID", "IVI", "BV", "IVII", "Residual")) %>% 
+  mutate(international_id = str_replace(IID, "1_", "")) %>% 
+  left_join(redangus) %>% 
+  select(international_id, BV, Residual, age)
+
+plot_grid(
+  ggplot(make_qq(residuals, "Residual"))+
+      geom_point(aes(x=qq, y=Residual, color=age)) + 
+      labs(x="Theoretical",y="Observed")+
+    scale_color_viridis_c()+
+    ggtitle("Untransformed - Residuals"),
+  ggplot(make_qq(residuals, "BV"))+
+      geom_point(aes(x=qq, y=BV, color=age)) + 
+      labs(x="Theoretical",y="Observed")+
+    scale_color_viridis_c()+
+    ggtitle("Untransformed - Breeding Values"))
+
+
+# 
+# read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred_ranknorm_transformed.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+#   stat_qq()+
+#   stat_qq_line()+
+#   ggtitle("Rank Normal Transformed")
+# 
+# read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred_boxcox_transformed.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+#   stat_qq()+
+#   stat_qq_line()+
+#   ggtitle("Box Cox Transformed")
+# 
+# read_tsv("/CIFS/MUG01_N/deckerje/tnr343/gcta_test/greml/190402_RAN.gpsm_purebred_log_transformed.indi.blp", col_names = FALSE) %>% ggplot(aes(sample = X6))+
+#   stat_qq()+
+#   stat_qq_line()+
+#   ggtitle("Log Transformed")
+```
+

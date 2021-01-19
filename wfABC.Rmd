@@ -1,0 +1,457 @@
+---
+title: "WFABC"
+author: "Troy Rowan"
+date: "12/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(qvalue)
+library(tidylog)
+library(ggplot2)
+library(cowplot)
+library(eeptools)
+library(moments)
+library(pedigree)
+library(matrixStats)
+options(scipen=3)
+```
+
+# Data Preparation
+```{r}
+redangus = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>%
+  filter(!is.na(birth_date)) %>%
+  mutate(age = age_calc(as.Date(birth_date), units = "years", precise = TRUE)) %>%
+  select(international_id, age) %>%
+  right_join(read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv"))%>%
+  mutate(bin = ntile(birth_date, 3)) %>% 
+  left_join(read_tsv("revision_work/wfABC/redangus_generations.txt"), by = c("regisno" = "Indiv"))
+
+
+
+plot_grid(
+  redangus %>% 
+    ggplot(aes(equiGen))+
+    geom_histogram(bins = 100)+
+  theme_cowplot(),
+  redangus %>% 
+  ggplot(aes(maxGen))+
+  geom_histogram(bins = 10)+
+  theme_cowplot(),
+  nrow = 2)
+
+redangus %>% filter(!is.na(maxGen)) %>% 
+  select(international_id, maxGen) %>% 
+  right_join(read_table("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.fam", 
+                       col_names = c("FID", "international_id", "sire", "dam", "sex", "pheno"))) %>% 
+  select(maxGen, international_id, sire, dam, sex, pheno) %>% 
+  write_tsv("revision_work/wfABC/190402_RAN.purebred.maxgen.fam", col_names = FALSE)
+  count(maxGen)
+```
+
+### Formatting for wfABC (50K + GPSM)
+Used even numbers of Significant, Suggestive, and Unassociated GPSM SNPs (248) based on GPSM results
+
+Since we don't need to estimate Ne, we'll use the second worked example from https://evoldyn.gitlab.io/evomics-2018/ref-sheets/WFABC_manual.pdf which doesn't rely on most of the loci being "neutral"
+
+```{r}
+SNP50 = read_tsv("/CIFS/MUG01_N/schnabelr/PLINK_FILES/marker_name/9913_ARS1.2_58336_SNP50_marker_name_200806.map",
+                 col_names = c("CHR", "rs", "CM", "POS")) %>% 
+  mutate(SNP = paste(CHR, POS, sep = ":")) %>% 
+  .$SNP
+genome_wide = read_tsv("revision_work/wfABC/genomewide_gpsm_snps.txt",
+                       col_names = c("SNP"),
+                       col_types = cols(SNP = col_character())) %>% .$SNP
+
+suggestive = read_tsv("revision_work/wfABC/suggestive_gpsm_snps.txt",
+                       col_names = c("SNP"),
+                       col_types = cols(SNP = col_character())) %>% .$SNP
+
+c(SNP50, genome_wide, suggestive) %>% as.data.frame() %>% write_tsv("revision_work/wfABC/RAN_SNPs.txt", col_names = FALSE)
+
+
+n_ind = 
+  read_csv("revision_work/wfABC/190402_RAN.generation_allele_counts.frq.strat",
+             col_types = cols(SNP = col_character())) %>% 
+    filter(!is.na(CLST)) %>% 
+    mutate(N = NCHROBS) %>% 
+    select(SNP, CLST, N) %>% 
+    group_by(SNP, CLST) %>% filter(n() == 1) %>% ungroup() %>% 
+    distinct() %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(N))
+allele_counts =
+    read_csv("revision_work/wfABC/190402_RAN.generation_allele_counts.frq.strat",
+             col_types = cols(SNP = col_character())) %>%
+    filter(!is.na(CLST)) %>% 
+    mutate(MAC = as.numeric(MAC)) %>%
+    #mutate(row = row_number()) %>%
+    select(SNP, CLST, MAC) %>% 
+    group_by(SNP, CLST) %>% filter(n() == 1) %>% ungroup() %>% 
+    distinct() %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(MAC)) %>% 
+  filter_all(all_vars(. != 0))
+
+
+bind_rows(
+  n_ind %>% 
+    filter(SNP %in% allele_counts$SNP,
+           ),
+  allele_counts) %>%
+  arrange(SNP) %>% 
+  select(-SNP) %>% 
+  write_csv("revision_work/wfABC/190402_RAN.wfABC")
+  
+snps = 
+  bind_rows(
+    n_ind %>% 
+      filter(SNP %in% allele_counts$SNP),
+    allele_counts) %>%
+    arrange(SNP) %>% 
+    select(SNP) %>% 
+    mutate(class = case_when(SNP %in% genome_wide ~ "Significant",
+                             SNP %in% suggestive ~ "Suggestive",
+                             TRUE ~ "SNP50")) %>% 
+  distinct()
+
+snps %>% count(class)
+```
+
+### Formatting for wfABC (850K + GPSM)
+Used even numbers of Significant, Suggestive, and Unassociated GPSM SNPs (248) based on GPSM results
+
+Since we don't need to estimate Ne, we'll use the second worked example from https://evoldyn.gitlab.io/evomics-2018/ref-sheets/WFABC_manual.pdf which doesn't rely on most of the loci being "neutral"
+
+```{r}
+SNP50 = read_tsv("/CIFS/MUG01_N/schnabelr/PLINK_FILES/marker_name/9913_ARS1.2_58336_SNP50_marker_name_200806.map",
+                 col_names = c("CHR", "rs", "CM", "POS")) %>% 
+  mutate(SNP = paste(CHR, POS, sep = ":")) %>% 
+  .$SNP
+genome_wide = read_tsv("revision_work/wfABC/genomewide_gpsm_snps.txt",
+                       col_names = c("SNP"),
+                       col_types = cols(SNP = col_character())) %>% .$SNP
+
+suggestive = read_tsv("revision_work/wfABC/genomewide_gpsm_snps.txt",
+                       col_names = c("SNP"),
+                       col_types = cols(SNP = col_character())) %>% .$SNP
+
+c(SNP50, genome_wide, suggestive) %>% as.data.frame() %>% write_tsv("revision_work/wfABC/RAN_SNPs.txt", col_names = FALSE)
+
+
+n_ind = 
+  read_table2("revision_work/wfABC/190402_RAN.generation_allele_counts.frq.strat",
+             col_types = cols(SNP = col_character())) %>% 
+    filter(!is.na(CLST)) %>% 
+    mutate(N = NCHROBS) %>% 
+    select(SNP, CLST, N) %>% 
+    group_by(SNP, CLST) %>% filter(n() == 1) %>% ungroup() %>% 
+    distinct() %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(N))
+allele_counts =
+    read_table2("revision_work/wfABC/190402_RAN.generation_allele_counts.frq.strat",
+             col_types = cols(SNP = col_character())) %>%
+    filter(!is.na(CLST)) %>% 
+    mutate(MAC = as.numeric(MAC)) %>%
+    #mutate(row = row_number()) %>%
+    select(SNP, CLST, MAC) %>% 
+    group_by(SNP, CLST) %>% filter(n() == 1) %>% ungroup() %>% 
+    distinct() %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(MAC)) %>% 
+    filter_at(vars(-SNP), any_vars(. != 0))
+
+
+bind_rows(
+  n_ind %>% 
+    filter(SNP %in% allele_counts$SNP,
+           ),
+  allele_counts) %>%
+  arrange(SNP) %>% 
+  select(-SNP) %>% 
+  write_csv("revision_work/wfABC/190402_RAN.wfABC.850K")
+  
+```
+
+### Reading in data from above wfABC run (SNP50):
+
+```{r}
+
+wfabc_SNPs = 
+  bind_rows(
+  read_table("revision_work/wfABC/190402_RAN.generation_allele_counts.frq.strat",
+             col_types = cols(SNP = col_character())) %>% 
+    filter(!is.na(CLST)) %>% 
+    mutate(N = NCHROBS/2) %>% 
+    select(SNP, CLST, N) %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(N)),
+  read_table("revision_work/wfABC/190402_RAN.generation_allele_counts.frq.strat",
+             col_types = cols(SNP = col_character())) %>% 
+    filter(!is.na(CLST)) %>% 
+    select(SNP, CLST, MAC) %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(MAC))
+  ) %>% 
+  arrange(SNP) %>% 
+  select(SNP)
+read_delim("revision_work/wfABC/190402_RAN.wfABC.input_posterior_s.txt", delim = " ", col_names = FALSE)
+
+read_delim("revision_work/wfABC/190402_RAN.wfABC.input_Ne_bootstrap.txt", delim = " ", col_names = FALSE)
+
+read_tsv("revision_work/wfABC/190402_RAN.wfABC.input_obs_stats.txt")
+
+
+
+```
+
+### WFABC Results (SNP50) posterior
+```{r}
+read_tsv("revision_work/wfABC/190402_RAN.w_Ne_bootstrap.txt",
+         col_names = c("Ne")) %>% 
+  ggplot(aes(Ne))+
+  geom_density()+
+  theme_cowplot()
+
+wfABC = bind_cols(snps, read_table2("revision_work/wfABC/190402_RAN.w_posterior_s.txt", col_names = FALSE)) 
+
+wfABC[6998,] %>% 
+  select(-SNP, -class) %>% 
+  t() %>% as.data.frame() %>% 
+  ggplot(aes(V1))+
+  geom_density()
+
+wfABC_summary = 
+  bind_cols(snps, as.data.frame(wfABC %>% 
+  select(-SNP, -class) %>% 
+  rowMeans(na.rm = TRUE))) %>% 
+  mutate(s = abs(`wfABC %>% select(-SNP, -class) %>% rowMeans(na.rm = TRUE)`)) %>% 
+  left_join(read_tsv("gpsm/190402_RAN.purebred.gpsm.assoc.txt"), 
+            by = c("SNP" = "rs"))
+
+
+wfABC_summary %>% 
+  group_by(class) %>% 
+  summarize(mean(s), na.rm=TRUE)
+
+lm(data = wfABC_summary, s ~ class) %>% summary()
+```
+
+### Reading in data from above wfABC run (850K):
+
+```{r}
+
+read_tsv("revision_work/wfABC/190402_RAN.wfABC._Ne_bootstrap.txt",
+         col_names = c("Ne")) %>% 
+  ggplot(aes(Ne))+
+  geom_density()+
+  theme_cowplot()
+
+snps = 
+  bind_rows(
+    n_ind %>% 
+      filter(SNP %in% allele_counts$SNP),
+    allele_counts) %>%
+    arrange(SNP) %>% 
+    select(SNP) %>% 
+    mutate(class = case_when(SNP %in% genome_wide ~ "Significant",
+                             SNP %in% suggestive ~ "Suggestive",
+                             TRUE ~ "SNP50")) %>% 
+  distinct()
+
+wfABC = bind_cols(snps, read_table2("revision_work/wfABC/190402_RAN.wfABC._posterior_s.txt.gz", col_names = FALSE)) 
+
+wfABC =
+  bind_cols(snps, as.data.frame(wfABC %>% 
+  select(-SNP, -class) %>% 
+  rowMeans(na.rm = TRUE))) %>% 
+  mutate(s = abs(`wfABC %>% select(-SNP, -class) %>% rowMeans(na.rm = TRUE)`)) %>% 
+  left_join(read_tsv("gpsm/190402_RAN.purebred.gpsm.assoc.txt",
+                     col_types = cols(rs = col_character())), 
+            by = c("SNP" = "rs"))
+
+wfABC[6998,] %>% 
+  select(-SNP, -class) %>% 
+  t() %>% as.data.frame() %>% 
+  ggplot(aes(V1))+
+  geom_density()
+
+
+cor(wfABC$s, abs(wfABC$beta), use = "pairwise.complete.obs")  
+
+
+wfABC %>% 
+  group_by(class) %>% 
+  summarize(mean(s), na.rm=TRUE)
+
+lm(data = wfABC_summary, s ~ class) %>% summary()
+
+wfABC %>% 
+  ggplot(aes(s, abs(beta)))+
+  geom_point()+
+  theme_cowplot()
+
+wfABC %>% 
+  ggplot(aes(s, -log10(p_score)))+
+  geom_point()+
+  theme_cowplot()
+```
+
+
+### Relationship pruned wfABC
+```{r}
+read_table2("revision_work/wfABC/fam_prune/pruned_keep_ids.txt",
+            col_names = c("gen", "iid")) %>% 
+  count(gen)
+
+
+
+
+n_ind = 
+  read_table2("revision_work/wfABC/fam_prune/190402_RAN.generation_allele_counts_pruned.frq.strat",
+             col_types = cols(SNP = col_character())) %>% 
+    filter(!is.na(CLST)) %>% 
+    mutate(N = NCHROBS) %>% 
+    select(SNP, CLST, N) %>% 
+    group_by(SNP, CLST) %>% filter(n() == 1) %>% ungroup() %>% 
+    distinct() %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(N))
+allele_counts =
+    read_table2("revision_work/wfABC/fam_prune/190402_RAN.generation_allele_counts_pruned.frq.strat",
+             col_types = cols(SNP = col_character())) %>%
+    filter(!is.na(CLST)) %>% 
+    mutate(MAC = as.numeric(MAC)) %>%
+    #mutate(row = row_number()) %>%
+    select(SNP, CLST, MAC) %>% 
+    group_by(SNP, CLST) %>% filter(n() == 1) %>% ungroup() %>% 
+    distinct() %>% 
+    tidyr::pivot_wider(names_from = CLST, values_from = c(MAC)) %>% 
+  filter_at(vars(-SNP), any_vars(. != 0))
+
+
+bind_rows(
+  n_ind %>% 
+    filter(SNP %in% allele_counts$SNP,
+           ),
+  allele_counts) %>%
+  arrange(SNP) %>% 
+  select(-SNP) %>% 
+  write_csv("revision_work/wfABC/fam_prune/190402_RAN.wfABC_pruned")
+```
+
+### Relationship Pruned wfABC Results (850K)
+```{r}
+library(matrixStats)
+
+#Something genuinely funky here... Ne = -940?
+read_tsv("revision_work/wfABC/fam_prune/190402_RAN.wfABC_pr_Ne_bootstrap.txt",
+         col_names = c("Ne")) %>% 
+  ggplot(aes(Ne))+
+  geom_density()+
+  theme_cowplot()
+
+snps = 
+  bind_rows(
+    n_ind %>% 
+      filter(SNP %in% allele_counts$SNP),
+    allele_counts) %>%
+    arrange(SNP) %>% 
+    select(SNP) %>% 
+    mutate(class = case_when(SNP %in% genome_wide ~ "Significant",
+                             SNP %in% suggestive ~ "Suggestive",
+                             TRUE ~ "Other")) %>% 
+  distinct()
+
+wfABC = bind_cols(snps, read_table2("revision_work/wfABC/fam_prune/190402_RAN.wfABC_pr_posterior_s.txt", col_names = FALSE)) 
+
+# wfABC[1,] %>% 
+#   select(-SNP, -class) %>% 
+#   t() %>% as.data.frame() %>% 
+#   ggplot(aes(V1))+
+#   geom_density()
+
+wfABC_summary = 
+  bind_cols(snps, as.data.frame(wfABC %>% 
+  select(-SNP, -class) %>% 
+  as.matrix() %>% 
+  rowMedians(na.rm = TRUE))) %>% 
+  mutate(s = abs(`wfABC %>% select(-SNP, -class) %>% as.matrix() %>% rowMedians(na.rm = TRUE)`)) %>% 
+  left_join(read_tsv("gpsm/190402_RAN.purebred.gpsm.assoc.txt", col_types = cols(rs = col_character())), 
+            by = c("SNP" = "rs")) %>% 
+  mutate(CHR = as.numeric(str_split_fixed(SNP, ":", n = 2)[,1]),
+         BP = as.numeric(str_split_fixed(SNP, ":", n = 2)[,2]))
+
+
+
+wfABC_summary %>% 
+  group_by(class) %>% 
+  summarize(mean(s), na.rm=TRUE)
+
+lm(data = wfABC_summary, s ~ class) %>% summary()
+
+
+cor(filter(wfABC_summary, class == "Significant")$s,
+filter(wfABC_summary, class == "Significant")$beta)
+
+cor(wfABC_summary$s, wfABC_summary$beta, use = "pairwise.complete.obs")
+
+
+wfABC_summary %>% 
+  selscan_manhattans(col = s)
+```
+
+### Relationship Pruned wfABC Results (850K)
+```{r}
+library(matrixStats)
+
+#Something genuinely funky here... Ne = -940?
+read_tsv("revision_work/wfABC/fam_prune/wfabc_242/190402_RAN.wfABC_pr_Ne_bootstrap.txt",
+         col_names = c("Ne")) %>% 
+  ggplot(aes(Ne))+
+  geom_density()+
+  theme_cowplot()
+
+snps = 
+  bind_rows(
+    n_ind %>% 
+      filter(SNP %in% allele_counts$SNP),
+    allele_counts) %>%
+    arrange(SNP) %>% 
+    select(SNP) %>% 
+    mutate(class = case_when(SNP %in% genome_wide ~ "Significant",
+                             SNP %in% suggestive ~ "Suggestive",
+                             TRUE ~ "Other")) %>% 
+  distinct()
+
+wfABC = bind_cols(snps, read_table2("revision_work/wfABC/fam_prune/wfabc_242/", col_names = FALSE)) 
+
+wfABC[1,] %>% 
+  select(-SNP, -class) %>% 
+  t() %>% as.data.frame() %>% 
+  ggplot(aes(V1))+
+  geom_density()
+
+wfABC_summary = 
+  bind_cols(snps, as.data.frame(wfABC %>% 
+  select(-SNP, -class) %>% 
+  as.matrix() %>% 
+  rowMedians(na.rm = TRUE))) %>% 
+  mutate(s = abs(`wfABC %>% select(-SNP, -class) %>% as.matrix() %>% rowMedians(na.rm = TRUE)`)) %>% 
+  left_join(read_tsv("gpsm/190402_RAN.purebred.gpsm.assoc.txt", col_types = cols(rs = col_character())), 
+            by = c("SNP" = "rs")) %>% 
+  mutate(CHR = as.numeric(str_split_fixed(SNP, ":", n = 2)[,1]),
+         BP = as.numeric(str_split_fixed(SNP, ":", n = 2)[,2]))
+
+
+
+wfABC_summary %>% 
+  group_by(class) %>% 
+  summarize(mean(s), na.rm=TRUE)
+
+lm(data = wfABC_summary, s ~ class) %>% summary()
+
+
+wfABC_summary %>% 
+  selscan_manhattans(col = s)
+```
+

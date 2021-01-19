@@ -1,0 +1,1734 @@
+---
+title: "NG_Figures"
+author: "Troy Rowan"
+date: "3/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(purrr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(reticulate)
+library(knitr)
+library(reshape2)
+library(readr)
+library(ggplot2)
+library(svglite)
+library(viridis)
+library(maps)
+library(forcats)
+library(broom)
+library(lme4)
+library(RColorBrewer)
+library(here)
+library(forcats)
+library(cowplot)
+library(maps)
+library(qvalue)
+library(gProfileR)
+library(eeptools)
+library(patchwork)
+here::here()
+setwd("/data/tnr343/local_adaptation/combined_analysis/")
+source("/data/tnr343/local_adaptation/red_angus/gene_from_snp.R")
+source("/data/tnr343/local_adaptation/red_angus/plotting_functions.R")
+```
+
+```{r}
+sigsnps = 
+  bind_rows(read_csv("190402_RAN.sigsnps.csv",
+                     col_types = cols(rs = col_character())),
+            read_csv("190326_SIM.sigsnps.csv",
+                     col_types = cols(rs = col_character())),
+            read_csv("190326_GEL.sigsnps.csv",
+                     col_types = cols(rs = col_character())))
+
+gelbvieh = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh_phenotypes.csv") %>% 
+  mutate(breed = "Gelbvieh")  %>%
+  filter(!is.na(birth_date)) %>%
+  mutate(age = age_calc(as.Date(birth_date), units = "years", precise = TRUE)) %>%
+  select(iid, age, breed) %>%
+  right_join(read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh_phenotypes.csv"))
+
+
+simmental = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental_phenotypes.csv") %>% 
+  mutate(breed = "Simmental") %>%
+  filter(!is.na(anm_dob)) %>%
+  mutate(age = age_calc(as.Date(anm_dob), units = "years", precise = TRUE)) %>%
+  select(international_id, age, breed) %>%
+  right_join(read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental_phenotypes.csv"))
+
+redangus = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>% 
+  filter(!is.na(birth_date)) %>%
+  mutate(age = age_calc(as.Date(birth_date), units = "years", precise = TRUE)) %>%
+  select(international_id, age) %>%
+  right_join(read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv")) %>% 
+  mutate(breed = "Red Angus")
+simmental %>% 
+  filter(!is.na(anm_dob)) %>% 
+  summarize(n = n(), mean = mean(anm_dob), median(anm_dob), min(anm_dob), max(anm_dob))
+
+##For adding Q-Q Plots to this figure
+make_qq <- function(dd, x) {
+    dd<-dd[order(dd[[x]]), ]
+    dd$qq <- qnorm(ppoints(nrow(dd)))
+    dd
+}
+
+read_blp <- function(blp_path){
+  blp_results =
+    read_tsv(blp_path,
+             col_names = c("FID", "international_id", "IV1", "BV", "IV2", "Residual")) %>%
+    select(international_id, BV, Residual)
+  return(blp_results)
+}
+
+plot_grid(
+  rbind(
+    select(redangus, birth_date, breed),
+    select(simmental, birth_date = anm_dob, breed),
+    select(gelbvieh, birth_date, breed)) %>%
+    filter(!is.na(breed)) %>% 
+    mutate(breed = factor(breed, levels = c("Red Angus", "Simmental", "Gelbvieh"))) %>% 
+    ggplot(aes(birth_date, fill = breed))+
+    geom_histogram()+
+    theme(legend.position = "none")+
+    facet_grid(~breed)+
+    labs(y = "Count", x = "Birth Year")+
+    theme_cowplot()+
+    theme(legend.position = "none"),
+  rbind(
+    select(redangus, birth_date, breed),
+    select(simmental, birth_date = anm_dob, breed),
+    select(gelbvieh, birth_date, breed)) %>%
+    filter(!is.na(breed)) %>% 
+    filter(birth_date < "2000-01-01") %>% 
+    mutate(breed = factor(breed, levels = c("Red Angus", "Simmental", "Gelbvieh"))) %>% 
+    ggplot(aes(birth_date, fill = breed))+
+    geom_histogram()+
+    theme(legend.position = "none")+
+    facet_grid(~breed)+
+    labs(y = "Count", x = "Birth Year")+
+    theme_cowplot()+
+    theme(legend.position = "none"),
+  bind_rows(
+  read_blp("greml/red_angus/greml/190402_RAN.gpsm.allsnps.indi.blp")%>%
+    left_join(redangus %>%
+                select(international_id, age, breed)) %>% 
+        make_qq("Residual"),
+  read_blp("greml/simmental/greml/190326_SIM.gpsm.allsnps.indi.blp")%>%
+    left_join(simmental %>%
+                select(international_id, age, breed)) %>%
+        make_qq("Residual"),
+  read_blp("greml/gelbvieh/greml/190326_GEL.gpsm.allsnps.indi.blp")%>%
+    left_join(gelbvieh %>%
+                select(iid, age, breed),
+              by = c("international_id" = "iid")) %>% 
+        make_qq("Residual")) %>% 
+    filter(!is.na(breed)) %>% 
+  mutate(breed = factor(breed, levels = c("Red Angus", "Simmental", "Gelbvieh"))) %>% 
+  ggplot()+
+    geom_point(aes(x = qq, y = Residual, color = age))+
+    facet_grid(~breed)+
+    labs(x = "Theoretical", y = "Observed", color = "Years since Birth\non 04/07/2017")+
+    stat_qq_line(aes(sample = Residual),color = "red")+
+    scale_color_viridis_c()+
+    theme_cowplot(),
+  nrow = 3,labels = "auto")
+ggsave("figures/NG_Submission/supplement/birth_date_distribution_wtruncated.png", width = 180, height = 150, units = "mm")
+
+
+redangus$breed
+```
+
+
+```{r}
+redangus %>% 
+  select(frac1, dewpoint, maxvap, minvap) %>% 
+  mutate_at(.vars = vars(dewpoint, maxvap, minvap),
+        .funs = funs(. = case_when(
+        frac1 == 1000 ~ .,
+          TRUE ~ NA_real_
+        ))) %>% 
+  select(dewpoint_., maxvap_., minvap_.) %>% 
+  write_tsv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/phenotypes/190402_RAN_env_vars.purebred.humidity.txt", col_names = FALSE)
+
+simmental %>% 
+  select(international_id, dewpoint, maxvap, minvap) %>% 
+  distinct() %>% 
+  select(-international_id) %>% 
+  write_tsv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/phenotypes/190326_SIM.humidity.txt", col_names = FALSE)
+
+gelbvieh %>% 
+  left_join(read_csv("prism_dataframe.csv")) %>% 
+  select(dewpoint, maxvap, minvap) %>%
+  write_tsv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/phenotypes/190326_GEL.humidity.txt", col_names = FALSE)
+
+ran_envgwas_genes = 
+  sigsnps %>% 
+    filter(dataset == "RedAngus",
+           str_detect(analysis, "env")) %>% 
+    genes(topn = 100, window = 10000) %>% 
+    right_join(sigsnps %>% 
+                 filter(dataset == "RedAngus",
+                        str_detect(analysis, "env")))
+  
+ran_envgwas_genes %>% 
+  ungroup() %>% 
+  select(gene, p_score) %>% 
+  group_by(gene) %>% 
+  arrange() %>% 
+  slice(1) %>% 
+  write_csv("RAN_envgwas_gene_scores.csv")
+
+```
+###Panel 1 Pieces
+```{r}
+RAN_map =
+  redangus %>% 
+            filter(frac1 == 1000 & !is.na(zone)) %>% 
+              select(international_id, x, y, zone, breed) %>%
+              mutate(breed = case_when(breed == "RedAngus" ~ "Red Angus",
+                                       TRUE ~ "TEDANGUS")) %>% 
+    mapplotting2(title = "",max = 30)+
+    theme(legend.position = "none",
+          legend.text = element_text(size = 9),
+          legend.title = element_blank())+
+  guides(color = guide_legend(nrow = 3))
+ggsave("figures/NG_Submission/Selection_Panel/RAN_map.pdf", width = 7, height = 5)
+
+redangus %>% 
+  ggplot(aes(birth_date))+
+  geom_histogram(bins = 50, fill = "indianred")+
+  labs(x = "Birth Date", y = "Count")
+ggsave("figures/NG_Submission/Selection_Panel/RAN_Ages.pdf", width = 7, height = 5)
+
+grm = read_tsv("truncated_GRM.txt", col_names = FALSE) %>% 
+  
+  as.matrix()
+ggplot(melt(grm), aes(Var1,Var2, fill=value)) + 
+  geom_raster()+
+  scale_fill_viridis_c()+
+  labs(x = NULL, y = NULL, fill = NULL)+
+  theme(legend.position = "none",
+        axis.text = element_text(size = 0),
+        axis.line = element_line(color = NULL))+
+  theme_nothing()
+ggsave("figures/NG_Submission/Selection_Panel/FakeGRM.pdf", width = 5, height = 5)
+
+```
+
+
+###Writing envGWAS hit candidate gene csv files
+```{r}
+sigsnps %>% 
+  filter(grepl("env", analysis) &
+         dataset == "RedAngus") %>% 
+  genes(topn = 1000, window = 10000) %>% 
+  ungroup() %>% 
+  right_join(sigsnps %>% 
+  filter(grepl("env", analysis) &
+         dataset == "RedAngus"), by = c("rs", "chr", "pos")) %>% 
+  write_csv("genes/summary_stats/RAN_envGWAS_10kb.csv")
+
+sigsnps %>% 
+  filter(grepl("env", analysis) &
+         dataset == "Simmental") %>% 
+  genes(topn = 1000, window = 10000) %>% 
+  ungroup() %>% 
+  right_join(sigsnps %>% 
+  filter(grepl("env", analysis) &
+         dataset == "Simmental"), by = c("rs", "chr", "pos")) %>% 
+  write_csv("genes/summary_stats/SIM_envGWAS_10kb.csv")
+
+sigsnps %>% 
+  filter(grepl("env", analysis) &
+         dataset == "Gelbvieh") %>% 
+  genes(topn = 1000, window = 10000) %>% 
+  ungroup() %>% 
+  right_join(sigsnps %>% 
+  filter(grepl("env", analysis) &
+         dataset == "Gelbvieh"), by = c("rs", "chr", "pos")) %>% 
+  write_csv("genes/summary_stats/GEL_envGWAS_10kb.csv")
+
+
+  
+sigsnps %>% 
+  filter(grepl("_GPSM", analysis) &
+         dataset == "RedAngus") %>% select(rs, chr, pos) %>% unique() %>% arrange(chr, pos) %>%  group_by(chr) %>% mutate(nextsnp = pos -lag(pos)) %>% ungroup() %>% filter(nextsnp >100000|is.na(nextsnp)) %>% View()
+
+sigsnps %>% 
+  filter(analysis == "GPSM" &
+         dataset == "RedAngus") %>% 
+  genes(topn = 1000, window = 10000) %>% 
+  ungroup() %>% 
+  right_join(sigsnps %>% 
+  filter(analysis == "GPSM" &
+         dataset == "RedAngus"), by = c("rs", "chr", "pos")) %>% 
+  select(-rs, -analysis, -dataset) %>%
+  write_csv("genes/summary_stats/RAN_GPSM.csv")
+
+sigsnps %>% 
+  filter(analysis == "GPSM" &
+         dataset == "Simmental") %>% 
+  genes(topn = 1000, window = 10000) %>% 
+  ungroup() %>% 
+  right_join(sigsnps %>% 
+  filter(analysis == "GPSM" &
+         dataset == "Simmental"), by = c("rs", "chr", "pos")) %>% 
+  select(-rs, -analysis, -dataset) %>%
+  write_csv("genes/summary_stats/SIM_GPSM.csv")
+
+sigsnps %>% 
+  filter(analysis == "GPSM" &
+         dataset == "Gelbvieh") %>% 
+  genes(topn = 1000, window = 10000) %>% 
+  ungroup() %>% 
+  right_join(sigsnps %>% 
+  filter(analysis == "GPSM" &
+         dataset == "Gelbvieh"), by = c("rs", "chr", "pos")) %>% 
+  select(-rs, -analysis, -dataset) %>%
+  write_csv("genes/summary_stats/GEL_GPSM.csv")
+```
+
+
+###K-means clustering map
+```{r}
+#Originates from k-means clustering. Latitude, Longitude, Zone 
+#had to mutate zone names because new round of k-me
+regions = read_csv("/data/tnr343/local_adaptation/maps/coordinate_zones.csv") %>% 
+  mutate(ecoregion = case_when(zone == "1" ~ "2",
+                               zone == "2" ~ "6",
+                               zone == "3" ~ "8",
+                               zone == "4" ~ "1",
+                               zone == "5" ~ "9",
+                               zone == "6" ~ "7",
+                               zone == "7" ~ "5",
+                               zone == "8" ~ "4",
+                               zone == "9" ~ "3")) %>% 
+  mutate(ecoregion = as.factor(ecoregion))
+
+regions = 
+  read_csv("/data/tnr343/local_adaptation/maps/coordinate_zones.csv",
+           col_types = cols(ecoregion = col_factor()))
+
+#Matches colors up 
+region_colors = c("3"="springgreen3", "9"="slateblue2", "1"="tomato2", "5"="goldenrod1", "6"="gray50", "8"="gray17", "4"="brown", "2"="darkslategray4", "7"="deeppink3")
+region_names = c("1" = "Desert", "2" = "Southeast", "3" = "High Plains", "4" = "Rainforest", "5" = "Arid Prairie", "6" = "Foothills", "7" = "Forested\nMountains", "8" = "Fescue Belt", "9" = "Upper Midwest &\nNortheast")
+
+  ggplot(regions, aes(long, lat))+
+    geom_raster(aes(fill = ecoregion))+
+    scale_fill_manual("", values=redo_color, labels = region_names)+
+    geom_polygon(data = map_data("state"), aes(x = long, y = lat, group = group), color = "black", fill = NA)+
+    theme_map()+
+    theme(legend.position = "bottom",
+          legend.key.size = unit(1, "mm"),
+          legend.text = element_text(size = 5))
+  guides(fill = guide_legend(override.aes = list(size=8)))
+ggsave("figures/NG_Submission/kmeans_clustering.png", width = 26.80, height = 17.00, units = "cm", bg = "transparent")
+ggsave("figures/NG_Submission/kmeans_clustering.pdf", width = 26.80, height = 17.00, units = "cm")
+
+#Horizontal Length 2,680 miles. Vertical Length: 1,582 miles
+```
+
+##Mendelians (Simmental)
+```{r} 
+
+polled = readPNG("figures/NG_Submission/mendelian/POLLED.png")
+kit = readPNG("figures/NG_Submission/mendelian/KIT.png")
+pmel = readPNG("figures/NG_Submission/mendelian/PMEL.png")
+
+gpsm_mendelians = 
+  rbind(read_table("single_snp/mendelians/190326_SIM.kit.frq.strat", col_names = TRUE, col_types = cols(SNP = col_character())),
+        read_table("single_snp/mendelians/190326_SIM.polled.frq.strat", col_names = TRUE, col_types = cols(SNP = col_character())),
+        read_table("single_snp/mendelians/190326_SIM.5peak.frq.strat", col_names = TRUE, col_types = cols(SNP = col_character()))) %>% 
+    mutate(CLST = case_when(CLST == "75to85" ~ 1980,
+                            CLST == "86to95" ~ 1990,
+                            TRUE ~ as.numeric(CLST))) %>% 
+    mutate(AF = 1-(MAC/NCHROBS)) %>% 
+    filter(SNP %in% c("5:57201800", "1:2618042", "6:70257540")) %>%
+    #filter(SNP %in% c("1:2618042", "5:57201800")) %>%
+    mutate(mendelian = case_when(CHR == 1 ~ "POLLED",
+                                 CHR == 5 ~ "PMEL",
+                                 CHR == 6 ~ "KIT")) %>% 
+    mutate(AF = case_when(!mendelian == "POLLED" ~ 1-AF,
+                          TRUE ~ AF)) %>% 
+    ggplot(aes(CLST, AF, color = mendelian))+
+    geom_smooth(size = 1.75,se = FALSE)+
+    labs(x = "Year of birth", y = "AF")+
+    scale_color_manual(values = c("firebrick3", "royalblue4", "springgreen4"))+
+    theme_cowplot()+
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_blank(),
+          axis.text = element_text(size = 10),
+          axis.title = element_text(size = 10))+
+    ylim(c(0,1))+
+    xlim(c(1975, 2036))+
+    annotation_custom(grid::rasterGrob(polled), xmin = 2019, xmax = 2039, ymin = 0.75, ymax = 1.1)+
+    annotation_custom(grid::rasterGrob(pmel), xmin = 2019, xmax = 2039, ymin = -0.25, ymax = 0.45)+
+    annotation_custom(grid::rasterGrob(kit), xmin = 2019, xmax = 2039, ymin = 0.15, ymax = 0.7)
+    
+  
+
+gpsm_mendelians
+```
+
+
+##GPSM panel 
+```{r} 
+ran_gpsm= readgwas2("gpsm/190402_RAN.purebred.gpsm.assoc.txt")%>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af))
+sim_gpsm= readgwas2("gpsm/190326_SIM.gpsm.assoc.txt")%>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af))
+gel_gpsm= readgwas2("gpsm/190326_GEL.gpsm.assoc.txt")%>% 
+  mutate(maf = case_when(af > 0.5 ~ 1-af,
+                         TRUE ~ af))
+maf_p =
+  plot_grid(
+    ran_gpsm %>% 
+      mutate(maf = case_when(af > 0.5 ~ 1-af,
+                             TRUE ~ af)) %>% 
+      filter(p < 1e-5) %>% 
+      ggplot(aes(maf, -log10(p)))+
+      geom_point(alpha=0.4)+
+      theme_cowplot()+
+      xlab("Minor Allele Frequency")+
+      mytheme,
+    sim_gpsm %>% 
+      mutate(maf = case_when(af > 0.5 ~ 1-af,
+                             TRUE ~ af)) %>% 
+      filter(p < 1e-5) %>% 
+      ggplot(aes(maf, -log10(p)))+
+      geom_point(alpha=0.4)+
+      theme_cowplot()+
+      xlab("Minor Allele Frequency")+
+      mytheme,
+    gel_gpsm %>% 
+      mutate(maf = case_when(af > 0.5 ~ 1-af,
+                             TRUE ~ af)) %>% 
+      filter(p < 1e-5) %>% 
+      ggplot(aes(maf, -log10(p)))+
+      geom_point(alpha=0.4)+
+      theme_cowplot()+
+      xlab("Minor Allele Frequency")+
+      mytheme,
+    nrow = 1, labels = c("j", "k", "l")
+  )
+
+gpsm_sigsnps = 
+  bind_rows(read_csv("190402_RAN.sigsnps.csv",
+                     col_types = cols(rs = col_character())),
+            read_csv("190326_SIM.sigsnps.csv",
+                     col_types = cols(rs = col_character())),
+            read_csv("190326_GEL.sigsnps.csv",
+                     col_types = cols(rs = col_character()))) %>% 
+  filter(analysis == "GPSM") %>% 
+  group_by(rs) %>%
+  mutate(count = n()) %>% 
+  ungroup()
+  
+
+RAN_GPSM = 
+  plot_grid(
+  ggmanhattan(readgwas("/gpsm", "*RAN*.assoc.txt"),
+              prune = 0.99,
+              value = q,
+              colors = c("grey8", "grey 60"), 
+              pointsize = 0.3,
+              sigsnps = filter(gpsm_sigsnps, count == 3)$rs,
+              sigsnpcolor = "blueviolet",
+              sigsnps2 = filter(gpsm_sigsnps, dataset == "RedAngus" & count ==2)$rs)+
+  theme(axis.text = element_text(size = 5),
+        axis.title = element_text(size = 5)),
+  ggmanhattan(readgwas("/gpsm", "*RAN*.assoc.txt"),
+              prune = 0.99,
+              value = q,
+              colors = c("grey8", "grey 60"),
+              pointsize = 0.3,
+              sigsnps = filter(gpsm_sigsnps, count == 3)$rs,
+              sigsnpcolor = "blueviolet",
+              sigsnps2 = filter(gpsm_sigsnps, dataset == "RedAngus" & count ==2)$rs)+
+    ylim(c(0,15))+
+  theme(axis.text = element_text(size = 5),
+        axis.title = element_text(size = 5)),
+  nrow = 1, labels = c("a", "b"), label_size = 9)
+
+
+
+SIM_GPSM = 
+  plot_grid(
+  ggmanhattan(readgwas("/gpsm", "*SIM*.assoc.txt"),
+              prune = 0.99,
+              value = q,
+              colors = c("grey8", "grey 60"),
+              pointsize = 0.3,
+              sigsnps = filter(gpsm_sigsnps, count == 3)$rs,
+              sigsnpcolor = "blueviolet",
+              sigsnps2 = filter(gpsm_sigsnps, dataset == "Simmental" & count ==2)$rs)+
+  theme(axis.text = element_text(size = 5),
+        axis.title = element_text(size = 5))+
+     geom_segment(aes(x = 1500000, y = 150, xend = 1500000, yend = 17),
+                  arrow = arrow(length = unit(0.2, "cm")),
+                  color = "springgreen4")+
+     geom_segment(aes(x = 592663000, y = 150, xend = 592663000, yend = 50),
+                  arrow = arrow(length = unit(0.2, "cm")),
+                  color = "royalblue4")+
+     geom_segment(aes(x = 705632000, y = 150, xend = 705632000, yend = 17),
+                  arrow = arrow(length = unit(0.2, "cm")),
+                  color = "firebrick3"),
+  ggmanhattan(readgwas("/gpsm", "*SIM*.assoc.txt"),
+              prune = 0.99,
+              value = q,
+              colors = c("grey8", "grey 60"), 
+              pointsize = 0.3,
+              sigsnps = filter(gpsm_sigsnps, count == 3)$rs,
+              sigsnpcolor = "blueviolet",
+              sigsnps2 = filter(gpsm_sigsnps, dataset == "Simmental" & count ==2)$rs)+
+    ylim(c(0,15))+
+  theme(axis.text = element_text(size = 5),
+        axis.title = element_text(size = 5)),
+  nrow = 1, labels = c("c", "d"), label_size = 9)
+
+
+
+GEL_GPSM = 
+  plot_grid(
+  ggmanhattan(readgwas("/gpsm", "*GEL*.assoc.txt"),
+              prune = 0.99,
+              value = q,
+              colors = c("grey8", "grey 60"), 
+              pointsize = 0.3,
+              sigsnps = filter(gpsm_sigsnps, count == 3)$rs,
+              sigsnpcolor = "blueviolet",
+              sigsnps2 = filter(gpsm_sigsnps, dataset == "Gelbvieh" & count ==2)$rs)+
+  theme(axis.text = element_text(size = 5),
+        axis.title = element_text(size = 5)),
+  ggmanhattan(readgwas("/gpsm", "*GEL*.assoc.txt"),
+              prune = 0.99,
+              value = q,
+              colors = c("grey8", "grey 60"), 
+              pointsize = 0.3,
+              sigsnps = filter(gpsm_sigsnps, count == 3)$rs,
+              sigsnpcolor = "blueviolet",
+              sigsnps2 = filter(gpsm_sigsnps, dataset == "Gelbvieh" & count ==2)$rs)+
+    ylim(c(0,15))+
+  theme(axis.text = element_text(size = 5),
+        axis.title = element_text(size = 5)),
+  nrow = 1, labels = c("e", "f"), label_size = 9)
+
+qqplots =
+  plot_grid(
+        read_tsv("gpsm/190402_RAN.purebred.gpsm.assoc.txt") %>%
+          .$p_score %>% 
+          ggqq(size = 0.5)+
+          theme_cowplot()+
+          qqtheme,
+        read_tsv("gpsm/190326_SIM.updated.gpsm.assoc.txt") %>%
+          .$p_score %>% 
+          ggqq(size = 0.5)+
+          theme_cowplot()+
+          qqtheme,
+        read_tsv("gpsm/190326_GEL.updated.gpsm.assoc.txt") %>%
+          .$p_score %>% 
+          ggqq(size = 0.5)+
+          theme_cowplot()+
+          qqtheme,
+        nrow = 1,
+        labels = c("g", "h", "i"),
+        label_size = 7.5)
+
+gpsm_changes =
+  bind_rows(read_table("single_snp/RAN_leadsnps_time.txt",
+                       col_types = cols(SNP = col_character())) %>%
+              mutate(breed = "RedAngus") %>%
+              filter(CLST != 2017),
+            read_table("single_snp/SIM_leadsnps_time.txt",
+                       col_types = cols(SNP = col_character())) %>%
+              mutate(breed = "Simmental") %>%
+              mutate(CLST = case_when(CLST == "75to85" ~ 1980,
+                                      CLST == "86to95" ~ 1990,
+                                      TRUE ~ as.numeric(CLST))) %>%
+              filter(CLST != 1980 & CLST != 2016),
+            read_table("single_snp/GEL_leadsnps_time.txt",
+                       col_types = cols(SNP = col_character())) %>%
+              mutate(breed = "Gelbvieh") %>%
+              filter(CLST != 1)) %>%
+  dplyr::rename(AF = MAF) %>%
+  mutate(AF = case_when(CHR == 2 & breed == "Simmental" ~ 1-AF,
+                        CHR == 12 & breed == "Simmental" ~ 1-AF,
+                        #CHR == 23 & breed == "RedAngus" ~ 1-AF,
+                        CHR == 28 & breed == "Simmental" ~ 1-AF,
+                        TRUE ~ AF))
+
+change =  
+  gpsm_changes %>%
+  mutate(rs = reorder(SNP, CHR),
+         breed = factor(breed, levels = c("RedAngus", "Simmental", "Gelbvieh"))) %>% 
+        filter(CHR != 12 & !is.na(CLST)) %>% 
+        ggplot(aes(CLST, AF, color = breed))+
+        geom_smooth(se = FALSE, size = 1, alpha = 0.5)+
+        #geom_point()+
+        # scale_color_manual(values = c(RedAngus = "indianred",
+        #                               Simmental = "royalblue2",
+        #                               Gelbvieh = "slateblue2"))+
+        #scale_color_viridis_d(end = 0.75, option = "plasma")+
+        #scale_color_viridis_d(end = 0.75, option = "viridis", labels = c("Red Angus", "Simmental", "Gelbvieh"))+
+        scale_color_manual(values = c("brown1", "dodgerblue", "purple4"), labels = c("Red Angus", "Simmental", "Gelbvieh"))+
+        labs(x = "Birth year", 
+             y = "Allele frequency")+
+        ylim(c(0,1))+
+    facet_wrap(~rs, nrow = 2)+
+  theme_cowplot()+
+    theme(legend.position = "bottom",
+          axis.text = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          axis.text.x = element_text(angle = 33, hjust = 1),
+          strip.text.x = element_text(size = 8),
+          legend.text = element_text(size = 10),
+          legend.title = element_blank())
+
+    
+plot_grid(RAN_GPSM, 
+          SIM_GPSM, 
+          GEL_GPSM, 
+          qqplots,
+          maf_p,
+          plot_grid(change, gpsm_mendelians, rel_widths = c(0.45, 0.55), labels = c("m", "n")),
+          labels = c("", "", "", ""), 
+          nrow = 6, 
+          rel_heights = c(.12, .12, .12, .25, .17, .30), 
+          label_size = 4)
+
+
+ggsave("figures/NG_Submission/GPSM.png", width = 180, height = 240, units = "mm")
+ggsave("figures/NG_Submission/Main_PDFs/GPSM.pdf", width = 180, height = 240, units = "mm")
+
+qqplots
+```
+
+
+
+
+
+
+
+##PCA Plots
+###Red Angus PCA Plots
+```{r}
+
+ran_evec = readevec("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenvec", program = "plink") %>% 
+  left_join(select(redangus, identifier = international_id, zone)) %>% 
+  filter(!is.na(zone))
+
+ran_evec %>%  
+  ggpca(pc1, 
+        pc2, 
+        method = "plink", 
+        evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+        colorby = zone,
+        legend = TRUE)
+ggsave("figures/NG_Submission/PCA/PC1_PC2.png", width = 180, height = 100, units = "mm")
+ran_evec %>% 
+  ggpca(pc3, 
+        pc4,
+        method = "plink", 
+        evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+        colorby = zone,
+        legend = TRUE)
+ggsave("figures/NG_Submission/PCA/PC3_PC4.png", width = 180, height = 100, units = "mm")
+
+ran_evec %>% 
+  ggpca(pc5, 
+        pc6, 
+        method = "plink", 
+        evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+        colorby = zone,
+        legend = TRUE)
+ggsave("figures/NG_Submission/PCA/PC5_PC6.png", width = 180, height = 100, units = "mm")
+
+ran_evec %>% 
+  ggpca(pc7, 
+        pc8,
+        method = "plink", 
+        evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+        colorby = zone,
+        legend = TRUE)
+ggsave("figures/NG_Submission/PCA/PC7_PC8.png", width = 180, height = 100, units = "mm")
+
+ran_evec %>% 
+  ggpca(pc9, 
+        pc10,
+        method = "plink", 
+        evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+        colorby = zone,
+        legend = TRUE)
+ggsave("figures/NG_Submission/PCA/P9_PC10.png", width = 180, height = 100, units = "mm")
+```
+
+
+
+###Combined PCA Plot
+```{r}
+ran_evec = readevec("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenvec", program = "plink") %>% 
+  left_join(select(redangus, identifier = international_id, zone)) %>% 
+  filter(!is.na(zone))
+
+sim_evec = readevec("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/pca/190326_SIM.noindicine.eigenvec", program = "plink") %>% 
+  left_join(select(simmental, identifier = international_id, zone)) %>% 
+  filter(!is.na(zone))
+
+gel_evec = readevec("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/pca/190326_GEL.eigenvec", program = "plink") %>% 
+  left_join(select(gelbvieh, identifier = iid, zone)) %>% 
+  filter(!is.na(zone))
+
+plot_grid(
+  ran_evec %>%  
+    ggpca(pc1, 
+          pc2, 
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  ran_evec %>% 
+    ggpca(pc3, 
+          pc4,
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  ran_evec %>% 
+    ggpca(pc5, 
+          pc6, 
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  ran_evec %>% 
+    ggpca(pc7, 
+          pc8,
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus/190402_RAN/190402_RAN.purebred.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  sim_evec %>%  
+    ggpca(pc1, 
+          pc2, 
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/pca/190326_SIM.noindicine.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  sim_evec %>% 
+    ggpca(pc3, 
+          pc4,
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/pca/190326_SIM.noindicine.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  sim_evec %>%  
+    ggpca(pc5, 
+          pc6, 
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/pca/190326_SIM.noindicine.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  sim_evec %>% 
+    ggpca(pc7, 
+          pc8,
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental/190326_SIM/pca/190326_SIM.noindicine.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  gel_evec %>%  
+    ggpca(pc1, 
+          pc2, 
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/pca/190326_GEL.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  gel_evec %>% 
+    ggpca(pc3, 
+          pc4,
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/pca/190326_GEL.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  gel_evec %>%  
+    ggpca(pc5, 
+          pc6, 
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/pca/190326_GEL.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  gel_evec %>% 
+    ggpca(pc7, 
+          pc8,
+          method = "plink", 
+          evalfile = "/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh/190326_GEL/pca/190326_GEL.eigenval", 
+          colorby = zone,
+          legend = FALSE)+
+  theme(axis.title.x = element_text(size = 7),
+        axis.title.y = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 6)),
+  nrow = 3, labels = "auto")
+ggsave("figures/NG_Submission/supplement/PCA.png", width = 300, height = 210, units = "mm")
+```
+
+
+
+###Location Maps
+```{r} 
+gelbvieh = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/gelbvieh_phenotypes.csv") %>% 
+  mutate(breed = "Gelbvieh")
+simmental = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/simmental_phenotypes.csv") %>% 
+  mutate(breed = "Simmental")
+redangus = read_csv("/CIFS/MUG01_N/deckerje/tnr343/local_adaptation_genotypes/red_angus_phenotypes.csv") %>% 
+  mutate(breed = "RedAngus")
+
+colour = c("3"="springgreen3", "9"="slateblue2", "1"="tomato2", "5"="goldenrod1", "8"="gray17", "2"="darkslategray4", "7"="deeppink3")
+region_names = c("1" = "Desert", "2" = "Southeast", "3" = "High Plains", "5" = "Arid Prairie", "7" = "Forested\nMountains", "8" = "Fescue Belt", "9" = "Upper Midwest &\nNortheast")
+all_states<-map_data("state")
+
+kmeans_map = 
+  ggplot(regions, aes(long, lat))+
+    geom_raster(aes(fill = ecoregion))+
+    scale_fill_manual("", values=region_colors, labels = c("1" = "Desert", "2" = "Southeast", "3" = "High Plains", "5" = "Arid Prairie", "7" = "Forested\nMountains", "8" = "Fescue Belt", "9" = "Upper Midwest &\nNortheast", "4" = "Rainforest", "6" = "Foothills"))+
+    geom_polygon(data = map_data("state"), aes(x = long, y = lat, group = group), color = "black", fill = NA)+
+    theme_map()+
+    ggtitle("")+
+    theme(legend.position = "left",
+          legend.text = element_text(size = 7))+
+  guides(fill = guide_legend(ncol = 1, 
+                             keywidth = grid::unit(4, "mm"),
+                             keyheight = grid::unit(4, "mm")))
+
+RAN_map =
+  redangus %>% 
+            filter(frac1 == 1000 & !is.na(zone)) %>% 
+              select(international_id, x, y, zone, breed) %>%
+              mutate(breed = case_when(breed == "RedAngus" ~ "Red Angus",
+                                       TRUE ~ "TEDANGUS")) %>% 
+    mapplotting2(title = "")+
+    theme(legend.position = "none",
+          legend.text = element_text(size = 9),
+          legend.title = element_blank())+
+  guides(color = guide_legend(nrow = 3))
+
+
+
+SIM_map = 
+  simmental%>% 
+            select(international_id, x, y, zone, breed) %>% 
+  mapplotting2(title = "")+
+    theme(legend.position = "none",
+          plot.title = element_text(size = 8, hjust = 0.5))
+
+GEL_map = 
+  gelbvieh%>% 
+            select(iid, x, y, zone, breed) %>% 
+  mapplotting2(title = "")+
+  geom_point(aes(x = -124.79, y = 49.4), color = "white")+
+    theme(legend.position = "none",
+          plot.title = element_text(size = 8, hjust = 0.5))
+```
+
+
+###Red Angus discrete envGWAS
+```{r}
+mv_manhattan = 
+  readgwas2("envgwas/190402_RAN.purebred.mv_bigzones.casecontrol.assoc.txt") %>% 
+  ggmanhattan2(prune = 0.5, 
+               pcol = "p")
+
+
+SE_manhattan = 
+  ggmanhattan2(readgwas("/envgwas/redangus_zones", "*RAN.purebred.zone2.*.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("darkslategray4", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+HP_manhattan = 
+  ggmanhattan2(readgwas("/envgwas/redangus_zones", "*RAN.purebred.zone3.*.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("springgreen3", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+AP_manhattan = 
+  ggmanhattan2(readgwas("/envgwas/redangus_zones", "*RAN.purebred.zone5.*.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("goldenrod1", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+FM_manhattan = 
+  ggmanhattan2(readgwas("/envgwas/redangus_zones", "*RAN.purebred.zone7.*.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("deeppink3", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+FB_manhattan = 
+  ggmanhattan2(readgwas("/envgwas/redangus_zones", "*RAN.purebred.zone8.*.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("gray17", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+UMWNE_manhattan = 
+  ggmanhattan2(readgwas("/envgwas/redangus_zones", "*RAN.purebred.zone9.*.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("slateblue2", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+
+plot_grid(plot_grid(kmeans_map, RAN_map, labels = c("a", "b"), rel_widths = c(0.59,0.41), nrow = 1),
+          plot_grid(mv_manhattan, labels = c("c")),
+          plot_grid(SE_manhattan, FB_manhattan, AP_manhattan, labels = c("d", "e", "f"), nrow = 1),
+          plot_grid(FM_manhattan, HP_manhattan, UMWNE_manhattan, labels = c("g", "h", "i"), nrow = 1),
+          rel_heights = c(0.3, 0.3, 0.2, 0.2),
+          nrow = 4)
+
+ggsave("figures/NG_Submission/RAN_discrete_envGWAS.png", height = 180, width = 180, units = "mm")
+ggsave("figures/NG_Submission/Main_PDFs/RAN_discrete_envGWAS.pdf", height = 180, width = 180, units = "mm")
+# plot_grid(kmeans_map, 
+#           RAN_map+
+#             theme(legend.text = element_text(color = "white")), 
+#           labels = c("a", "b"), 
+#           nrow = 1, 
+#           rel_heights = c(0.8, 1))
+# kmeans_map
+
+plot_grid(kmeans_map, RAN_map, rel_widths = c(0.57,0.43))
+ggsave("figures/NG_Submission/temp_maps.png", width = 180, height = 63, units = "mm")
+
+```
+
+###Red Angus GLM Comparison
+```{r}
+ran_temp_glm = 
+  readgwas2(filepath = "/data/tnr343/local_adaptation/combined_analysis/envgwas/190402_RAN.purebred.temp.glm.assoc.txt")
+
+ran_temp_lmm =
+  readgwas("/envgwas/redangus_zones", "*RAN.purebred.temp.*.envgwas.assoc.txt")
+
+ran_mv_lmm = 
+  readgwas2(filepath = "/data/tnr343/local_adaptation/combined_analysis/envgwas/190402_RAN.purebred.mv.envgwas.assoc.txt")
+
+plot_grid(
+  plot_grid(
+    ggqq(ran_temp_glm),
+    ggqq(ran_temp_lmm),
+    ggqq(ran_mv_lmm), nrow = 1, labels = "auto"),
+  ggmanhattan2(ran_temp_glm, prune = 0.1, pcol = "p"),
+  ggmanhattan2(ran_temp_lmm, prune = 0.1, pcol = "p"),
+  nrow = 3, labels = c("", "d", "e"))
+
+ggsave("qqs.png", width = 210, height = 210, units = "mm")
+
+cor(ran_temp_glm$p, ran_temp_lmm$p,method = "spearman")
+ggplot(aes(ran_temp_glm$p,ran_temp_lmm$p))+
+  geom_point()
+top_frac(ran_temp_glm, n = 0.001, wt = -log10(p)) %>% 
+  genes() %>% 
+  ungroup() %>% 
+  select(gene) %>% 
+  unique() %>% 
+  write_tsv("tester.genes.tsv")
+```
+
+###Red Angus Supplement with GLM
+```{r}
+FM_GLM_QQ = 
+  readgwas2(filepath = "/data/tnr343/local_adaptation/combined_analysis/envgwas/190402_RAN.purebred.zone7.glm.assoc.txt") %>% 
+  ggqq(size = 0.5)+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+FM_LMM_QQ = readgwas("/envgwas/redangus_zones", "*RAN.purebred.zone7.*.assoc.txt") %>% 
+  ggqq(size = 0.5)+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+MV_LMM_QQ = 
+  readgwas2("envgwas/190402_RAN.purebred.mv_bigzones.casecontrol.assoc.txt") %>% 
+  ggqq(size = 0.5)+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+
+FM_GLM = 
+  readgwas2(filepath = "/data/tnr343/local_adaptation/combined_analysis/envgwas/190402_RAN.purebred.zone7.glm.assoc.txt") %>% 
+  ggmanhattan2(value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("deeppink3", "grey70"))+
+  theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+
+plot_grid(plot_grid(FM_GLM_QQ, FM_LMM_QQ, MV_LMM_QQ, labels = c("a", "b", "c"), nrow = 1),
+          FM_GLM,
+          FM_manhattan,
+          plot_grid(SE_manhattan, FB_manhattan, AP_manhattan, labels = c("f", "g", "h"), nrow = 1),
+          plot_grid(HP_manhattan, UMWNE_manhattan, NULL, labels = c("i", "j", ""), nrow = 1),
+          nrow = 5,
+          labels = c("", "d" ,"e", "", ""))
+ggsave("figures/NG_Submission/supplement/RAN_discrete_univariate.png", height = 210, width = 180, units = "mm")
+
+```
+
+
+###Red Angus Continuous envGWAS
+```{r} 
+ran_climate_mv =
+  plot_grid(
+    readgwas("/envgwas", "*RAN.purebred.mv.envgwas.assoc.txt") %>% 
+        ggmanhattan(
+              prune = 0.05,
+              value = p,
+              pointsize = 0.9,
+              alpha = 0.7#,
+              #sigsnps = filter(env_sigsnps, analysis == "mv_envGWAS" & dataset == "RedAngus" & count > 1)$rs
+              )+
+    theme(axis.text = element_text(size = 7),
+          axis.title = element_text(size = 7)),
+    nrow = 1, labels = c("a"))
+
+
+ran_temp = 
+  plot_grid(
+    mapplotting(redangus, colorby = "meantemp", title = "")+
+      labs(color = "Temperature\n(°C)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas("/envgwas/redangus_zones", "*RAN.purebred.temp.*.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.325, 0.675),labels = c("b", "e"))
+
+
+ran_precip = 
+  plot_grid(
+    mapplotting(redangus, colorby = "precip", title = "")+
+      labs(color = "Precipitation\n(mm/year)", size = 4)+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas("/envgwas/redangus_zones", "*RAN.purebred.precip.*.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.325, 0.675),labels = c("c", "f"))
+
+ran_elev = 
+  plot_grid(
+    mapplotting(redangus, colorby = "elev", title = "")+
+      labs(color = "Elevation\n(m)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas("/envgwas/redangus_zones", "*RAN.purebred.elev.*.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.05,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.325, 0.675), labels = c("d", "g"))
+
+plot_grid( ran_climate_mv,ran_temp, ran_precip, ran_elev,
+          nrow = 4, rel_heights = c(1.1667, .9, .9, .9)  
+          )
+
+ggsave("figures/NG_Submission/continuous_envGWAS.png", width =180, height = 180, units = "mm")
+ggsave("figures/NG_Submission/Main_PDFs/continuous_envGWAS.pdf", width =180, height = 180, units = "mm")
+```
+
+###RAN continuous GLM comparisonr
+
+```{r}
+TEMP_GLM_QQ = 
+  readgwas2(filepath = "/data/tnr343/local_adaptation/combined_analysis/envgwas/190402_RAN.purebred.temp.glm.assoc.txt") %>% 
+  ggqq(size = 0.5)+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+TEMP_LMM_QQ = readgwas("/envgwas/redangus_zones", "*RAN.purebred.temp.*.envgwas.assoc.txt") %>% 
+  ggqq(size = 0.5)+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+MV_LMM_QQ = 
+  readgwas("/envgwas", "*RAN.purebred.mv.envgwas.assoc.txt") %>% 
+  ggqq(size = 0.5)+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+ran_temp = 
+  plot_grid(
+    mapplotting(redangus, colorby = "meantemp", title = "")+
+      labs(color = "Temperature\n(°C)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas("/envgwas/redangus_zones", "*RAN.purebred.temp.*.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.325, 0.675),labels = c("d", "g"))
+
+
+ran_precip = 
+  plot_grid(
+    mapplotting(redangus, colorby = "precip", title = "")+
+      labs(color = "Precipitation\n(mm/year)", size = 4)+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas("/envgwas/redangus_zones", "*RAN.purebred.precip.*.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.325, 0.675),labels = c("e", "h"))
+
+ran_elev = 
+  plot_grid(
+    mapplotting(redangus, colorby = "elev", title = "")+
+      labs(color = "Elevation\n(m)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas("/envgwas/redangus_zones", "*RAN.purebred.elev.*.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.05,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.325, 0.675), labels = c("f", "i"))
+
+plot_grid(
+  plot_grid(TEMP_GLM_QQ, TEMP_LMM_QQ, MV_LMM_QQ,
+            labels = c("a", "b", "c"), nrow = 1),
+  ran_temp,
+  ran_precip,
+  ran_elev,
+  nrow = 4, labels = c("", "", "", ""), rel_heights = c(1.1667, .9, .9, .9))
+ggsave("figures/NG_Submission/supplement/RAN_continuous_univariate.png", width =180, height = 180, units = "mm")
+```
+
+
+###RAN Combined envGWAS Panel
+```{r}
+env_maps = 
+  plot_grid(
+    mapplotting(redangus, colorby = "meantemp", title = "")+
+        labs(color = "Temperature\n(°C)")+
+        theme(legend.title.align = 0,
+              legend.position = c(0.95, 0.25),
+              legend.title = element_text(size = 5),
+              legend.text = element_text(size = 5),
+              legend.key.height = unit(0.05, units = "in"),
+              legend.key.width = unit(0.05, units = "in")),
+    mapplotting(redangus, colorby = "precip", title = "")+
+        labs(color = "Precipitation\n(mm/year)", size = 4)+
+        theme(legend.title.align = 0,
+              legend.position = c(0.95, 0.25),
+              legend.title = element_text(size = 5),
+              legend.text = element_text(size = 5),
+              legend.key.height = unit(0.05, units = "in"),
+              legend.key.width = unit(0.05, units = "in")),
+    mapplotting(redangus, colorby = "elev", title = "")+
+        labs(color = "Elevation\n(m)")+
+        theme(legend.title.align = 0,
+              legend.position = c(0.95, 0.25),
+              legend.title = element_text(size = 5),
+              legend.text = element_text(size = 5),
+              legend.key.height = unit(0.05, units = "in"),
+              legend.key.width = unit(0.05, units = "in")),
+    nrow = 1,
+    labels = c("d", "e", "f")
+  )
+
+ran_climate_mv =
+  plot_grid(
+    readgwas("/envgwas", "*RAN.purebred.mv.envgwas.assoc.txt") %>% 
+        ggmanhattan(
+              prune = 0.05,
+              value = p,
+              pointsize = 0.9,
+              alpha = 0.7#,
+              #sigsnps = filter(env_sigsnps, analysis == "mv_envGWAS" & dataset == "RedAngus" & count > 1)$rs
+              )+
+    theme(axis.text = element_text(size = 7),
+          axis.title = element_text(size = 7)),
+    nrow = 1)
+
+mv_manhattan = 
+  readgwas2("envgwas/190402_RAN.purebred.mv_bigzones.casecontrol.assoc.txt") %>% 
+  ggmanhattan2(prune = 0.5, 
+               pcol = "p")
+
+plot_grid(plot_grid(kmeans_map, RAN_map, labels = c("a", "b"), rel_widths = c(0.59,0.41), nrow = 1),
+          plot_grid(mv_manhattan, labels = c("c")),
+          plot_grid(env_maps),
+          plot_grid(ran_climate_mv, labels = c("g")),
+          rel_heights = c(0.25, 0.25, 0.22, 0.28),
+          nrow = 4)
+ggsave("figures/NG_Submission/combined_envGWAS.png", height = 210, width = 180, units = "mm")
+ggsave("figures/NG_Submission/Main_PDFs/combined_envGWAS.pdf", height = 210, width = 180, units = "mm")
+
+env_maps
+ggsave("figures/RAN_continusous_maps.png", width = 180, height = 52.4, units = "mm", bg = "transparent")
+```
+
+
+
+###Simmental discrete envGWAS Supplementary Figure
+```{r}
+colour = c("3"="springgreen3", "9"="slateblue2", "1"="tomato2", "5"="goldenrod1", "8"="gray17", "2"="darkslategray4", "7"="deeppink3")
+region_names = c("1" = "Desert", "2" = "Southeast", "3" = "High Plains", "5" = "Arid Prairie", "7" = "Forested\nMountains", "8" = "Fescue Belt", "9" = "Upper Midwest &\nNortheast")
+all_states<-map_data("state")
+
+
+SIM_mv_manhattan = 
+  readgwas2("envgwas/190326_SIM.all.2_3_7_8_9_mv.casecontrol.assoc.txt") %>% 
+  ggmanhattan2(prune = 0.5, 
+               pcol = "p")
+
+
+SIM_DES_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_SIM.all.zone1.casecontrol.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("tomato2", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+
+SIM_SE_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_SIM.all.zone2.casecontrol.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("darkslategray4", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+SIM_HP_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_SIM.all.zone3.casecontrol.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("springgreen3", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+SIM_FM_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_SIM.all.zone7.casecontrol.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("deeppink3", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+SIM_FB_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_SIM.all.zone8.casecontrol.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("gray17", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+SIM_UMWNE_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_SIM.all.zone9.casecontrol.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("slateblue2", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+
+plot_grid(plot_grid(kmeans_map, SIM_map, labels = c("a", "b"), rel_widths = c(0.59,0.41), nrow = 1),
+          plot_grid(SIM_mv_manhattan, labels = c("c")),
+          plot_grid(SIM_DES_manhattan, SIM_SE_manhattan, SIM_FB_manhattan, labels = c("d", "e", "f"), nrow = 1),
+          plot_grid( SIM_FM_manhattan, SIM_HP_manhattan, SIM_UMWNE_manhattan, labels = c("g", "h", "i"), nrow = 1, rel_widths = c(0.333, 0.333)),
+          rel_heights = c(0.3, 0.3, 0.2, 0.2),
+          nrow = 4)
+
+ggsave("figures/NG_Submission/supplement/SIM_discrete_envGWAS.png", height = 180, width = 180, units = "mm")
+```
+
+
+
+###Simmental continuous envGWAS Supplementary Figure
+```{r} 
+sim_climate_mv =
+  plot_grid(
+    readgwas2("envgwas/190326_SIM.all.mv.envgwas.assoc.txt") %>% 
+        ggmanhattan(
+              prune = 0.05,
+              value = p,
+              pointsize = 0.9,
+              alpha = 0.7#,
+              #sigsnps = filter(env_sigsnps, analysis == "mv_envGWAS" & dataset == "RedAngus" & count > 1)$rs
+              )+
+    theme(axis.text = element_text(size = 7),
+          axis.title = element_text(size = 7)),
+    nrow = 1, labels = c("a"))
+
+
+sim_temp = 
+  plot_grid(
+    mapplotting(simmental, colorby = "meantemp")+
+      labs(color = "Temperature\n(°C)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas2("envgwas/190326_SIM.all.temp.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.35, 0.65),labels = c("b", "c"))
+
+
+sim_precip = 
+  plot_grid(
+    mapplotting(simmental, colorby = "precip")+
+      labs(color = "Precipitation\n(mm/year)", size = 4)+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas2("envgwas/190326_SIM.all.precip.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.35, 0.65),labels = c("d", "e"))
+
+sim_elev = 
+  plot_grid(
+    mapplotting(simmental, colorby = "elev")+
+      labs(color = "Elevation\n(m)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas2("envgwas/190326_SIM.all.elev.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.05,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.35, 0.65), labels = c("f", "g"))
+
+plot_grid(sim_climate_mv,sim_temp, sim_precip, sim_elev,
+          nrow = 4, rel_heights = c(1.1667, .9, .9, .9)  
+          )
+
+ggsave("figures/NG_Submission/supplement/SIM_continuous_envGWAS.png", width =180, height = 180, units = "mm")
+```
+###Gelbvieh discrete envGWAS Supplementary Figure
+```{r}
+colour = c("3"="springgreen3", "9"="slateblue2", "1"="tomato2", "5"="goldenrod1", "8"="gray17", "2"="darkslategray4", "7"="deeppink3")
+region_names = c("1" = "Desert", "2" = "Southeast", "3" = "High Plains", "5" = "Arid Prairie", "7" = "Forested\nMountains", "8" = "Fescue Belt", "9" = "Upper Midwest &\nNortheast")
+all_states<-map_data("state")
+
+
+
+GEL_mv_manhattan = 
+  readgwas2("envgwas/190326_GEL.mv_1_2_3_7_8_9.ccgwas.assoc.txt") %>% 
+  ggmanhattan2(prune = 0.5, 
+               pcol = "p")
+
+GEL_DES_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_GEL.zone1.ccgwas.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("tomato2", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+GEL_SE_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_GEL.zone2.ccgwas.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("darkslategray4", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+GEL_HP_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_GEL.zone3.ccgwas.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("springgreen3", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+GEL_FM_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_GEL.zone7.ccgwas.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("deeppink3", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+GEL_FB_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_GEL.zone8.ccgwas.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("gray17", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+GEL_UMWNE_manhattan = 
+  ggmanhattan2(readgwas2("envgwas/190326_GEL.zone9.ccgwas.assoc.txt"),
+               prune = 0.1,
+               value = p,
+               pcol = "p",
+               pointsize = 0.5,
+               alpha = 0.7,
+               colors = c("slateblue2", "grey70"))+
+      ylim(c(0, 17))+
+      theme(axis.text = element_text(size = 5),
+            axis.title = element_text(size = 5),
+            plot.title = element_text(size = 7))
+
+
+plot_grid(plot_grid(kmeans_map, GEL_map, labels = c("a", "b"), rel_widths = c(0.59,0.41), nrow = 1),
+          plot_grid(GEL_mv_manhattan, labels = c("c")),
+          plot_grid(GEL_DES_manhattan, GEL_SE_manhattan, GEL_FB_manhattan, labels = c("d", "e", "f"), nrow = 1),
+          plot_grid(GEL_FM_manhattan, GEL_HP_manhattan, GEL_UMWNE_manhattan, labels = c("g", "h", "i"), nrow = 1),
+          rel_heights = c(0.3, 0.3, 0.2, 0.2),
+          nrow = 4)
+
+ggsave("figures/NG_Submission/supplement/GEL_discrete_envGWAS.png", height = 180, width = 180, units = "mm")
+```
+###Gelbvieh continuous envGWAS Supplementary Figure
+```{r} 
+gel_climate_mv =
+  plot_grid(
+    readgwas2("envgwas/190326_GEL.all.mv.envgwas.assoc.txt") %>% 
+        ggmanhattan(
+              prune = 0.05,
+              value = p,
+              pointsize = 0.9,
+              alpha = 0.7#,
+              #sigsnps = filter(env_sigsnps, analysis == "mv_envGWAS" & dataset == "RedAngus" & count > 1)$rs
+              )+
+    theme(axis.text = element_text(size = 7),
+          axis.title = element_text(size = 7)),
+    nrow = 1, labels = c("a"))
+
+
+gel_temp = 
+  plot_grid(
+    mapplotting(gelbvieh, colorby = "meantemp")+
+      labs(color = "Temperature\n(°C)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas2("envgwas/190326_GEL.all.temp.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.35, 0.65),labels = c("b", "c"))
+
+
+gel_precip = 
+  plot_grid(
+    mapplotting(gelbvieh, colorby = "precip")+
+      labs(color = "Precipitation\n(mm/year)", size = 4)+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas2("envgwas/190326_GEL.all.precip.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.019,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.35, 0.65),labels = c("d", "e"))
+
+gel_elev = 
+  plot_grid(
+    mapplotting(gelbvieh, colorby = "elev")+
+      labs(color = "Elevation\n(m)")+
+      theme(legend.title.align = 0,
+            legend.position = c(0.95, 0.25),
+            legend.title = element_text(size = 5),
+            legend.text = element_text(size = 5),
+            legend.key.height = unit(0.05, units = "in"),
+            legend.key.width = unit(0.05, units = "in")),
+    readgwas2("envgwas/190326_GEL.all.elev.envgwas.assoc.txt") %>% 
+      ggmanhattan(prune = 0.05,
+                value = p,
+                pointsize = 0.5,
+                alpha = 0.7)+
+      theme(axis.text = element_text(size = 8),
+            axis.title = element_text(size = 8)),
+    nrow = 1, rel_widths = c(0.35, 0.65), labels = c("f", "g"))
+
+plot_grid(gel_climate_mv, gel_temp, gel_precip, gel_elev,
+          nrow = 4, rel_heights = c(1.1667, .9, .9, .9)  
+          )
+
+ggsave("figures/NG_Submission/supplement/GEL_continuous_envGWAS.png", width =180, height = 180, units = "mm")
+```
+
+###Continuous multivariate envGWAS
+```{r}
+
+plot_grid(
+  readgwas2("envgwas/190402_RAN.purebred.mv.envgwas.assoc.txt") %>% 
+    ggmanhattan2(prune = 0.5, 
+                 pcol = "p"),
+  readgwas2("envgwas/190326_SIM.all.mv.envgwas.assoc.txt") %>% 
+    ggmanhattan2(prune = 0.5, 
+                 pcol = "p"),
+  readgwas2("envgwas/190326_GEL.all.mv.envgwas.assoc.txt") %>% 
+    ggmanhattan2(prune = 0.5, 
+                 pcol = "p"),
+  nrow = 3)
+
+plot_grid(
+  readgwas2("envgwas/190402_RAN.purebred.mv_bigzones.casecontrol.assoc.txt") %>% 
+    ggmanhattan2(prune = 0.5, 
+                 pcol = "p"),
+  readgwas2("envgwas/190326_SIM.all.2_3_7_8_9_mv.casecontrol.assoc.txt") %>% 
+    ggmanhattan2(prune = 0.5, 
+                 pcol = "p"),
+  readgwas2("envgwas/190326_GEL.mv3_7_8_9.ccgwas.assoc.txt") %>% 
+    ggmanhattan2(prune = 0.5, 
+                 pcol = "p"),
+  nrow = 3)
+```
+
+
+###Humidity envGWAS
+```{r}
+readgwas2("humidity/190402_RAN.purebred.humidity.assoc.txt") %>% 
+  ggmanhattan2(prune = 0.1, pcol = "p")+
+  ggtitle("Red Angus")
+
+
+readgwas2("humidity/190326_SIM.humidity.assoc.txt") %>% 
+  ggmanhattan2(prune = 0.1, pcol = "p")+
+  ggtitle("Simmental")
+
+readgwas2("humidity/190326_SIM.humidity.assoc.txt") %>% filter(p < 1e-5) %>% genes(topn = 100)
+readgwas2("humidity/190402_RAN.purebred.humidity.assoc.txt") %>% filter(p < 1e-5) %>% genes(topn = 100)
+
+
+readgwas2("humidity/190402_RAN.purebred.humidity.assoc.txt") %>% 
+  filter(p < 1e-5) %>%
+  mutate(envsnp = case_when(rs %in% filter(sigsnps, dataset == "RedAngus", grepl("env", analysis))$rs ~ TRUE,
+                            TRUE ~ FALSE))
+
+readgwas2("humidity/190326_SIM.humidity.assoc.txt") %>% 
+  filter(p < 1e-5) %>%
+  mutate(envsnp = case_when(rs %in% filter(sigsnps, dataset == "Simmental", grepl("env", analysis))$rs ~ TRUE,
+                            TRUE ~ FALSE))
+```
+
